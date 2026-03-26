@@ -7,8 +7,8 @@ import {
 } from "@mediapipe/tasks-vision";
 import { EXPERIENCE_CONFIG, getQualityProfile } from "@/config/experience";
 import { assetUrl } from "@/lib/assets";
-import { clamp, lerp, lerpVec2, length } from "@/lib/math";
 import { measureHand } from "@/lib/hand-tracking/gestures";
+import { clamp, lerp, lerpVec2, length } from "@/lib/math";
 import type { GestureState, HandVisualState, InteractionState, QualityTier, Vec2 } from "@/types/experience";
 
 interface TrackerCallbacks {
@@ -62,7 +62,7 @@ export class HandTrackerController {
   }
 
   async init() {
-    const vision = await FilesetResolver.forVisionTasks(assetUrl("mediapipe/wasm"));
+    const vision = await FilesetResolver.forVisionTasks(assetUrl("mediapipe/wasm/"));
 
     try {
       this.landmarker = await HandLandmarker.createFromOptions(vision, {

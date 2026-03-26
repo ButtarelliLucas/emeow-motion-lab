@@ -24,53 +24,39 @@ export function IntroGate({ phase, onStart }: IntroGateProps) {
   const status = statusCopy(phase);
 
   return (
-    <section className="absolute inset-0 flex items-end justify-center px-4 pb-5 pt-16 sm:px-6 sm:pb-6">
-      <div className="glass-panel relative w-full max-w-xl rounded-[2rem] px-5 py-6 sm:px-8 sm:py-8">
+    <section className="absolute inset-0 flex items-end justify-center px-4 pb-8 pt-16 sm:px-6 sm:items-center sm:pb-6">
+      <div className="glass-panel relative w-full max-w-xl rounded-[2rem] px-5 pb-8 pt-6 sm:px-8 sm:pb-9 sm:pt-8">
         <div className="mb-6 flex items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-[1.6rem] border border-white/12 bg-white/4 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
-            <img alt="Monograma e-Meow" className="h-10 w-10 object-contain" src={assetUrl("brand/emeow-m-mark.svg")} />
+            <img alt="Logo e-Meow" className="h-11 w-11 object-contain" src={assetUrl("brand/emeow-logo-white.png")} />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="mb-1 text-xs font-semibold uppercase tracking-[0.32em] text-foreground-muted">
               Experiencia interactiva
             </p>
-            <img alt="e-Meow" className="h-5 w-auto opacity-90" src={assetUrl("brand/emeow-logo-white.png")} />
+            <p className="text-base font-medium lowercase tracking-[0.24em] text-foreground">motion lab</p>
           </div>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-[-0.05em] text-foreground sm:text-4xl">
-              {EXPERIENCE_COPY.label}
-            </h1>
-            <p className="mt-3 max-w-lg text-balance text-sm leading-6 text-foreground-muted sm:text-base">
-              {EXPERIENCE_COPY.headline}
-            </p>
-          </div>
-
-          <p className="text-sm leading-6 text-foreground-muted">{EXPERIENCE_COPY.subcopy}</p>
+        <div className="space-y-5">
+          <p className="max-w-lg text-balance text-sm leading-6 text-foreground-muted sm:text-base">
+            {EXPERIENCE_COPY.headline}
+          </p>
 
           <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
             <p className="text-sm leading-6 text-foreground">{EXPERIENCE_COPY.permission}</p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <div className="space-y-1 text-xs text-foreground-muted">
-              <p>Mobile first, portrait first y compatible con desktop.</p>
-              <p>Sin landmarks clasicos: solo halos, estelas y campo de particulas.</p>
-            </div>
-
-            <button
-              className="focus-ring inline-flex min-h-12 items-center justify-center rounded-full border border-white/15 bg-[linear-gradient(135deg,rgba(128,235,255,0.88),rgba(255,233,175,0.88))] px-6 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-105 disabled:cursor-progress disabled:opacity-72"
-              disabled={busy}
-              onClick={() => {
-                void onStart();
-              }}
-              type="button"
-            >
-              {busy ? "Iniciando..." : "Activar camara"}
-            </button>
-          </div>
+          <button
+            className="focus-ring inline-flex min-h-12 w-full items-center justify-center rounded-full border border-white/15 bg-[linear-gradient(135deg,rgba(128,235,255,0.88),rgba(255,233,175,0.88))] px-6 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-105 disabled:cursor-progress disabled:opacity-72 sm:w-auto"
+            disabled={busy}
+            onClick={() => {
+              void onStart();
+            }}
+            type="button"
+          >
+            {busy ? "Iniciando..." : "Activar camara"}
+          </button>
 
           {status ? (
             <div className="rounded-full border border-white/10 bg-black/30 px-4 py-2 text-center text-xs uppercase tracking-[0.28em] text-foreground-muted">

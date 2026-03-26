@@ -1,12 +1,9 @@
 import type { ExperienceConfig, ExperienceMetrics, QualityProfile, QualityTier } from "@/types/experience";
 
 export const EXPERIENCE_COPY = {
-  label: "e-Meow Motion Lab",
-  headline: "Particulas que reaccionan al gesto como si estuvieras esculpiendo un campo de luz.",
-  subcopy:
-    "Activa la camara para entrar en una escena cosmica eterea. No mostramos landmarks clasicos: tus manos deforman, atraen y expanden el flujo con una capa visual mucho mas futurista.",
-  permission:
-    "Para disfrutar la experiencia hace falta permitir el uso de la camara. Si la camara se activa y no detectamos manos, te vamos a guiar para que interactues dentro del cuadro.",
+  label: "motion lab",
+  headline: "Activa la camara para entrar en una escena cosmica eterea: tus manos deforman, atraen y expanden el flujo visual.",
+  permission: "Para disfrutar la experiencia hace falta permitir el uso de la camara.",
   liveHint: "Usa tus manos dentro de la camara para deformar el flujo.",
   landscapeHint: "Se disfruta mejor en vertical, pero sigue funcionando en desktop y landscape.",
   help: [

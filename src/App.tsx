@@ -22,6 +22,7 @@ export default function App() {
 
   const showIntro = phase === "intro" || phase === "requestingCamera" || phase === "calibrating";
   const showFallback = phase === "denied" || phase === "unsupported" || phase === "fallback";
+  const showHud = phase === "live" || phase === "handMissing";
   const showHint = phase === "handMissing";
 
   return (
@@ -29,14 +30,16 @@ export default function App() {
       <ExperienceViewport cameraVisible={!showFallback && !showIntro} canvasRef={canvasRef} videoRef={videoRef} />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(198,243,255,0.16),transparent_34%),radial-gradient(circle_at_bottom,rgba(255,241,207,0.14),transparent_30%)]" />
 
-      <StatusHud
-        helpItems={EXPERIENCE_COPY.help}
-        helpOpen={helpOpen}
-        overlayStatus={overlayStatus}
-        onGoHome={() => window.open("https://e-meow.com.ar", "_self", "noopener")}
-        onRecalibrate={resetTracking}
-        onToggleHelp={() => setHelpOpen((current) => !current)}
-      />
+      {showHud ? (
+        <StatusHud
+          helpItems={EXPERIENCE_COPY.help}
+          helpOpen={helpOpen}
+          overlayStatus={overlayStatus}
+          onGoHome={() => window.open("https://e-meow.com.ar", "_self", "noopener")}
+          onRecalibrate={resetTracking}
+          onToggleHelp={() => setHelpOpen((current) => !current)}
+        />
+      ) : null}
 
       {showHint ? (
         <div className="pointer-events-none absolute inset-x-0 top-[22%] flex justify-center px-4">
@@ -48,12 +51,7 @@ export default function App() {
 
       <OrientationHint copy={EXPERIENCE_COPY.landscapeHint} />
 
-      {showIntro ? (
-        <IntroGate
-          phase={phase}
-          onStart={startExperience}
-        />
-      ) : null}
+      {showIntro ? <IntroGate phase={phase} onStart={startExperience} /> : null}
 
       {showFallback ? (
         <FallbackExperience
