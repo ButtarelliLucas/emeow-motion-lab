@@ -1,0 +1,29 @@
+<svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="240" height="240" rx="56" fill="url(#panel)"/>
+  <path d="M54 176V74.5L95 112L120 70L145 112L186 74.5V176" stroke="url(#edge)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M75 176V108L101 131.5L120 96L139 131.5L165 108V176" stroke="url(#core)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="120" cy="170" r="42" stroke="url(#ring)" stroke-width="4" opacity="0.72"/>
+  <circle cx="120" cy="170" r="16" fill="url(#pulse)" opacity="0.92"/>
+  <defs>
+    <linearGradient id="panel" x1="22" y1="18" x2="215" y2="220" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#07141E"/>
+      <stop offset="1" stop-color="#03070C"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="49" y1="68" x2="188" y2="176" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8AF1FF"/>
+      <stop offset="1" stop-color="#FFE6A6"/>
+    </linearGradient>
+    <linearGradient id="core" x1="70" y1="84" x2="164" y2="176" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7FDFF"/>
+      <stop offset="1" stop-color="#8AF1FF"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="78" y1="139" x2="162" y2="201" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8AF1FF"/>
+      <stop offset="1" stop-color="#FFE6A6"/>
+    </linearGradient>
+    <radialGradient id="pulse" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(120 170) rotate(90) scale(16)">
+      <stop stop-color="#F5FBFF"/>
+      <stop offset="1" stop-color="#8AF1FF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+</svg>

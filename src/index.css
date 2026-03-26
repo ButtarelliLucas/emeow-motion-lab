@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+:root {
+  --background: #03070c;
+  --background-soft: #071018;
+  --surface: rgba(4, 14, 24, 0.74);
+  --surface-strong: rgba(5, 17, 28, 0.9);
+  --surface-muted: rgba(255, 255, 255, 0.08);
+  --foreground: #f5fbff;
+  --foreground-muted: rgba(233, 244, 255, 0.72);
+  --line: rgba(182, 235, 255, 0.16);
+  --line-strong: rgba(223, 246, 255, 0.3);
+  --accent-cyan: #80ebff;
+  --accent-ice: #f4fdff;
+  --accent-gold: #ffe9af;
+  --shadow-glow: 0 20px 80px rgba(0, 0, 0, 0.45);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-background-soft: var(--background-soft);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent-cyan: var(--accent-cyan);
+  --color-accent-ice: var(--accent-ice);
+  --color-accent-gold: var(--accent-gold);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background:
+    radial-gradient(circle at top, rgba(111, 220, 255, 0.11), transparent 34%),
+    radial-gradient(circle at bottom, rgba(255, 238, 190, 0.08), transparent 28%),
+    var(--background);
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
+
+body,
+#root {
+  margin: 0;
+  min-height: 100vh;
+}
+
+body {
+  font-family:
+    "Segoe UI Variable Display",
+    "Segoe UI",
+    "Bahnschrift",
+    system-ui,
+    sans-serif;
+  color: var(--foreground);
+  background: transparent;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+canvas,
+video {
+  display: block;
+}
+
+::selection {
+  background: rgba(128, 235, 255, 0.28);
+  color: white;
+}
+
+.glass-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    rgba(2, 10, 17, 0.68);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-glow);
+  backdrop-filter: blur(22px);
+}
+
+.focus-ring {
+  outline: none;
+  box-shadow:
+    0 0 0 2px rgba(128, 235, 255, 0.72),
+    0 0 0 5px rgba(4, 25, 35, 0.8);
+}
+
+.ambient-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: center center;
+}
+
+.bg-nebula {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(128, 235, 255, 0.2), transparent 28%),
+    radial-gradient(circle at 80% 30%, rgba(255, 233, 175, 0.12), transparent 26%),
+    radial-gradient(circle at 50% 100%, rgba(166, 214, 255, 0.08), transparent 32%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
