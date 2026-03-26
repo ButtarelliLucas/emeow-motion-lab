@@ -260,6 +260,9 @@ export function useExperienceController() {
       handsDetected: false,
       primaryGesture: "idle",
       dualActive: false,
+      paletteBias: 0,
+      dualDistance: 0,
+      dualCloseness: 0,
       lastUpdated: performance.now(),
     });
   };

@@ -31,7 +31,7 @@ export function FallbackExperience({ phase, errorMessage, onRetry, onVisualMode 
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <button
-            className="focus-ring min-h-12 rounded-full border border-white/15 bg-[linear-gradient(135deg,rgba(128,235,255,0.88),rgba(255,233,175,0.88))] px-5 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-105"
+            className="focus-ring min-h-12 rounded-full border border-white/15 bg-[linear-gradient(135deg,rgba(128,235,255,0.88),rgba(248,62,165,0.88))] px-5 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-105"
             onClick={() => {
               void onRetry();
             }}

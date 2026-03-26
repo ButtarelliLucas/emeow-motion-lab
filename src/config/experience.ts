@@ -1,16 +1,16 @@
 import type { ExperienceConfig, ExperienceMetrics, QualityProfile, QualityTier } from "@/types/experience";
 
 export const EXPERIENCE_COPY = {
-  label: "motion lab",
+  label: "Motion Lab",
   headline: "Activa la camara para entrar en una escena cosmica eterea: tus manos deforman, atraen y expanden el flujo visual.",
   permission: "Para disfrutar la experiencia hace falta permitir el uso de la camara.",
   liveHint: "Usa tus manos dentro de la camara para deformar el flujo.",
   landscapeHint: "Se disfruta mejor en vertical, pero sigue funcionando en desktop y landscape.",
   help: [
-    "Pinch atrae y comprime particulas.",
-    "Abrir la mano expande el campo alrededor de la palma.",
-    "Mover la mano rapido crea estelas y desplaza corrientes.",
-    "Con dos manos aparece un campo dual mas profundo.",
+    "Cerrar la mano atrae particulas con un radio grande hacia la palma.",
+    "Abrir la mano dispersa el flujo, y cuanto mas se abre mas fuerte empuja.",
+    "Con dos manos la distancia entre palmas concentra o suelta el campo central.",
+    "Girar una mano cambia la paleta; con dos manos el color sale del desnivel entre ambas.",
   ],
 } as const;
 
@@ -30,10 +30,12 @@ export const EXPERIENCE_CONFIG: ExperienceConfig = {
     },
   },
   handGraceMs: 220,
-  pinchOnThreshold: 0.42,
-  pinchOffThreshold: 0.58,
-  openPalmThreshold: 1.18,
+  closedFistOnThreshold: 0.72,
+  closedFistOffThreshold: 0.56,
+  openAmountThreshold: 0.76,
   sweepSpeedThreshold: 1.25,
+  dualCloseDistance: 0.22,
+  dualFarDistance: 0.86,
   trackingTargetFps: {
     low: 24,
     medium: 28,

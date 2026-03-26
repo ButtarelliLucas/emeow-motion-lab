@@ -177,6 +177,9 @@ export class HandTrackerController {
       handsDetected: false,
       primaryGesture: "idle",
       dualActive: false,
+      paletteBias: 0,
+      dualDistance: 0,
+      dualCloseness: 0,
       lastUpdated: performance.now(),
     });
   }
@@ -259,11 +262,11 @@ export class HandTrackerController {
       const previous = this.hands.get(key);
       const measured = measureHand(
         landmarks as NormalizedLandmark[],
-        previous?.gesture === "pinch",
+        previous?.gesture === "closedFist",
         {
-          pinchOnThreshold: EXPERIENCE_CONFIG.pinchOnThreshold,
-          pinchOffThreshold: EXPERIENCE_CONFIG.pinchOffThreshold,
-          openPalmThreshold: EXPERIENCE_CONFIG.openPalmThreshold,
+          closedFistOnThreshold: EXPERIENCE_CONFIG.closedFistOnThreshold,
+          closedFistOffThreshold: EXPERIENCE_CONFIG.closedFistOffThreshold,
+          openAmountThreshold: EXPERIENCE_CONFIG.openAmountThreshold,
         },
         confidence,
       );
@@ -311,6 +314,11 @@ export class HandTrackerController {
         radius: lerp(previous?.radius ?? radiusTarget, radiusTarget, 0.36),
         pinchStrength: lerp(previous?.pinchStrength ?? measured.pinchStrength, measured.pinchStrength, 0.35),
         openness: lerp(previous?.openness ?? measured.openness, measured.openness, 0.35),
+        closure: lerp(previous?.closure ?? measured.closure, measured.closure, 0.32),
+        openAmount: lerp(previous?.openAmount ?? measured.openAmount, measured.openAmount, 0.32),
+        rollAngle: lerp(previous?.rollAngle ?? measured.rollAngle, measured.rollAngle, 0.28),
+        sideTilt: lerp(previous?.sideTilt ?? measured.sideTilt, measured.sideTilt, 0.26),
+        paletteBias: lerp(previous?.paletteBias ?? measured.paletteBias, measured.paletteBias, 0.24),
         speed: rawSpeed,
         gesture,
         trail,
@@ -346,12 +354,29 @@ export class HandTrackerController {
     activeHands.sort((left, right) => left.palm.x - right.palm.x);
     const dualActive = activeHands.length > 1;
     const primaryGesture = dualActive ? "dualField" : activeHands[0]?.gesture ?? "idle";
+    const dualDistance = dualActive ? distance(activeHands[0].palm, activeHands[1].palm) : 0;
+    const rawDualDistance = dualActive ? distance(activeHands[0].rawPalm, activeHands[1].rawPalm) : 0;
+    const dualCloseness = dualActive
+      ? 1 -
+        clamp(
+          (rawDualDistance - EXPERIENCE_CONFIG.dualCloseDistance) /
+            Math.max(EXPERIENCE_CONFIG.dualFarDistance - EXPERIENCE_CONFIG.dualCloseDistance, 0.0001),
+          0,
+          1,
+        )
+      : 0;
+    const paletteBias = dualActive
+      ? clamp((activeHands[1].palm.y - activeHands[0].palm.y) / 0.65, -1, 1)
+      : activeHands[0]?.paletteBias ?? 0;
 
     this.callbacks.onInteraction({
       hands: activeHands,
       handsDetected: activeHands.length > 0,
       primaryGesture,
       dualActive,
+      paletteBias,
+      dualDistance,
+      dualCloseness,
       lastUpdated: now,
     });
   }

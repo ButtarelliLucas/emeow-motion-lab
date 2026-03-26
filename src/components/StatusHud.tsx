@@ -25,14 +25,14 @@ function phaseLabel(overlayStatus: OverlayStatus) {
 
 function gestureHint(gesture: GestureState) {
   switch (gesture) {
-    case "pinch":
-      return "Pinch activo: atrae y comprime el flujo.";
+    case "closedFist":
+      return "Mano cerrada: el flujo se concentra con fuerza hacia la palma.";
     case "openPalm":
-      return "Palma abierta: expande el campo de particulas.";
+      return "Palma abierta: el campo se dispersa segun cuanto abras la mano.";
     case "sweep":
       return "Barrido rapido: desplaza corrientes y deja estelas.";
     case "dualField":
-      return "Dos manos activas: el campo dual ya esta respondiendo.";
+      return "Dos manos activas: la distancia entre palmas esta modulando el campo.";
     default:
       return "Mostra tus manos dentro del cuadro para activar el flujo.";
   }
@@ -53,14 +53,14 @@ export function StatusHud({
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center px-3 pt-3 sm:px-5 sm:pt-5">
         <div className="glass-panel pointer-events-auto flex w-full max-w-6xl flex-col gap-3 rounded-[1.6rem] px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-[1.2rem] border border-white/12 bg-white/6">
-              <img alt="Logo e-Meow" className="h-7 w-7 object-contain" src={assetUrl("brand/emeow-logo-white.png")} />
+            <div className="flex h-16 w-16 items-center justify-center">
+              <img alt="Logo e-Meow" className="h-16 w-16 object-contain" src={assetUrl("brand/emeow-logo-white.png")} />
             </div>
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-foreground-muted">
                 Experiencia interactiva
               </p>
-              <p className="text-sm font-medium lowercase tracking-[0.18em] text-foreground">motion lab</p>
+              <p className="text-sm font-medium tracking-[0.18em] text-foreground">Motion Lab</p>
             </div>
           </div>
 

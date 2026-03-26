@@ -8,7 +8,7 @@ export type ExperiencePhase =
   | "unsupported"
   | "fallback";
 
-export type GestureState = "idle" | "pinch" | "openPalm" | "sweep" | "dualField";
+export type GestureState = "idle" | "closedFist" | "openPalm" | "sweep" | "dualField";
 
 export type QualityTier = "low" | "medium" | "high";
 
@@ -37,10 +37,12 @@ export interface QualityProfile {
 export interface ExperienceConfig {
   cameraConstraints: MediaStreamConstraints;
   handGraceMs: number;
-  pinchOnThreshold: number;
-  pinchOffThreshold: number;
-  openPalmThreshold: number;
+  closedFistOnThreshold: number;
+  closedFistOffThreshold: number;
+  openAmountThreshold: number;
   sweepSpeedThreshold: number;
+  dualCloseDistance: number;
+  dualFarDistance: number;
   trackingTargetFps: Record<QualityTier, number>;
   defaultMetrics: ExperienceMetrics;
 }
@@ -65,6 +67,11 @@ export interface HandVisualState {
   radius: number;
   pinchStrength: number;
   openness: number;
+  closure: number;
+  openAmount: number;
+  rollAngle: number;
+  sideTilt: number;
+  paletteBias: number;
   speed: number;
   gesture: Exclude<GestureState, "dualField">;
   trail: Vec2[];
@@ -78,6 +85,9 @@ export interface InteractionState {
   handsDetected: boolean;
   primaryGesture: GestureState;
   dualActive: boolean;
+  paletteBias: number;
+  dualDistance: number;
+  dualCloseness: number;
   lastUpdated: number;
 }
 

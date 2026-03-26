@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { getQualityProfile } from "@/config/experience";
-import { average, clamp, distance, lerp, normalize, scale, subtract } from "@/lib/math";
+import { average, clamp, lerp, normalize, scale, subtract } from "@/lib/math";
 import { nextHigherQuality, nextLowerQuality } from "@/lib/quality";
 import { createViewportMapping } from "@/lib/viewport-mapping";
 import type { InteractionState, QualityTier, Vec2, ViewportMapping } from "@/types/experience";
@@ -38,8 +38,8 @@ function createGlowTexture(innerOpacity: number, outerOpacity: number) {
 
   const gradient = context.createRadialGradient(size / 2, size / 2, 2, size / 2, size / 2, size / 2);
   gradient.addColorStop(0, `rgba(255,255,255,${innerOpacity})`);
-  gradient.addColorStop(0.38, "rgba(128,235,255,0.9)");
-  gradient.addColorStop(0.65, "rgba(255,233,175,0.35)");
+  gradient.addColorStop(0.38, "rgba(255,255,255,0.88)");
+  gradient.addColorStop(0.68, "rgba(255,255,255,0.34)");
   gradient.addColorStop(1, `rgba(255,255,255,${outerOpacity})`);
   context.fillStyle = gradient;
   context.fillRect(0, 0, size, size);
@@ -59,13 +59,13 @@ function createRingTexture() {
   }
 
   context.clearRect(0, 0, size, size);
-  context.strokeStyle = "rgba(128,235,255,0.95)";
+  context.strokeStyle = "rgba(255,255,255,0.92)";
   context.lineWidth = 6;
   context.beginPath();
   context.arc(size / 2, size / 2, size / 2 - 10, 0, Math.PI * 2);
   context.stroke();
 
-  context.strokeStyle = "rgba(255,233,175,0.45)";
+  context.strokeStyle = "rgba(255,255,255,0.34)";
   context.lineWidth = 2;
   context.beginPath();
   context.arc(size / 2, size / 2, size / 2 - 24, 0, Math.PI * 2);
@@ -73,6 +73,10 @@ function createRingTexture() {
 
   return new THREE.CanvasTexture(canvas);
 }
+
+const BLUE = new THREE.Color("#7febff");
+const PINK = new THREE.Color("#F83EA5");
+const WHITE = new THREE.Color("#fff6fb");
 
 function createDefaultViewportMapping(canvas: HTMLCanvasElement) {
   const viewportWidth = canvas.clientWidth || window.innerWidth || 1;
@@ -101,6 +105,9 @@ export class ParticleFieldRenderer {
     handsDetected: false,
     primaryGesture: "idle",
     dualActive: false,
+    paletteBias: 0,
+    dualDistance: 0,
+    dualCloseness: 0,
     lastUpdated: 0,
   };
   private running = false;
@@ -119,6 +126,10 @@ export class ParticleFieldRenderer {
   private trailLines: THREE.Line[] = [];
   private glowTexture = createGlowTexture(1, 0);
   private ringTexture = createRingTexture();
+  private readonly palettePrimary = new THREE.Color(BLUE);
+  private readonly paletteSecondary = new THREE.Color(BLUE);
+  private readonly paletteHighlight = new THREE.Color(WHITE);
+  private readonly paletteTrail = new THREE.Color(BLUE);
 
   constructor(canvas: HTMLCanvasElement, { tier, reducedMotion, onQualityChange, onStats }: RendererOptions) {
     this.onQualityChange = onQualityChange;
@@ -253,6 +264,20 @@ export class ParticleFieldRenderer {
     this.particles.geometry.attributes.position.needsUpdate = true;
   }
 
+  private updatePalette(bias: number) {
+    const mix = clamp((bias + 1) * 0.5, 0, 1);
+    this.palettePrimary.copy(BLUE).lerp(PINK, mix);
+    this.paletteSecondary.copy(this.palettePrimary).lerp(WHITE, 0.34);
+    this.paletteHighlight.copy(this.palettePrimary).lerp(WHITE, 0.52);
+    this.paletteTrail.copy(this.palettePrimary).lerp(WHITE, 0.16);
+
+    if (this.particles) {
+      const material = this.particles.material;
+      material.uniforms.uColorA.value.copy(this.paletteSecondary);
+      material.uniforms.uColorB.value.copy(this.palettePrimary);
+    }
+  }
+
   private buildParticles() {
     const geometry = new THREE.BufferGeometry();
     const count = this.profile.particleCount;
@@ -287,8 +312,8 @@ export class ParticleFieldRenderer {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       uniforms: {
-        uColorA: { value: new THREE.Color("#7febff") },
-        uColorB: { value: new THREE.Color("#fff0c2") },
+        uColorA: { value: this.paletteSecondary.clone() },
+        uColorB: { value: this.palettePrimary.clone() },
       },
       vertexShader: `
         attribute float aSize;
@@ -329,20 +354,21 @@ export class ParticleFieldRenderer {
     this.particles = particles;
     this.particleBuffers = { positions, velocities, sizes, alphas, seeds, baseSizes };
     this.scene.add(this.particles);
+    this.updatePalette(this.interaction.paletteBias);
   }
 
   private createHandsVisuals() {
     for (let handIndex = 0; handIndex < 2; handIndex += 1) {
       const ringMaterial = new THREE.SpriteMaterial({
         map: this.ringTexture,
-        color: new THREE.Color("#7febff"),
+        color: this.palettePrimary.clone(),
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
       });
       const coreMaterial = new THREE.SpriteMaterial({
         map: this.glowTexture,
-        color: new THREE.Color("#fff1bf"),
+        color: this.paletteHighlight.clone(),
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
@@ -360,7 +386,7 @@ export class ParticleFieldRenderer {
         const tip = new THREE.Sprite(
           new THREE.SpriteMaterial({
             map: this.glowTexture,
-            color: new THREE.Color(tipIndex % 2 === 0 ? "#7febff" : "#fff0cb"),
+            color: (tipIndex % 2 === 0 ? this.palettePrimary : this.paletteSecondary).clone(),
             transparent: true,
             depthWrite: false,
             blending: THREE.AdditiveBlending,
@@ -377,7 +403,7 @@ export class ParticleFieldRenderer {
       const trail = new THREE.Line(
         trailGeometry,
         new THREE.LineBasicMaterial({
-          color: handIndex === 0 ? "#7febff" : "#fff0cb",
+          color: (handIndex === 0 ? this.palettePrimary : this.paletteSecondary).clone(),
           transparent: true,
           opacity: 0,
           blending: THREE.AdditiveBlending,
@@ -411,19 +437,24 @@ export class ParticleFieldRenderer {
   };
 
   private updateParticles(time: number, delta: number) {
+    this.updatePalette(this.interaction.paletteBias);
     const { positions, velocities, sizes, alphas, seeds, baseSizes } = this.particleBuffers;
     const activeHands = this.interaction.hands.map((hand) => ({
       ...hand,
       scenePalm: hand.palm,
       sceneVelocity: scale(hand.velocity, 0.025),
-      sceneRadius: Math.max(0.15, hand.radius * 2.8),
+      sceneRadius: Math.max(
+        0.18,
+        hand.radius *
+          (hand.gesture === "closedFist" ? 7.2 + hand.closure * 4.6 : hand.gesture === "openPalm" ? 5.4 + hand.openAmount * 2.4 : 3.8),
+      ),
     }));
     const dualCenter =
       this.interaction.dualActive && activeHands.length > 1
         ? average(activeHands.map((hand) => hand.palm))
         : null;
-    const dualRadius =
-      dualCenter && activeHands.length > 1 ? distance(activeHands[0].palm, activeHands[1].palm) * 1.9 : 0;
+    const dualRadius = dualCenter ? Math.max(0.22, this.interaction.dualDistance * 0.92) : 0;
+    const dualInfluenceRadius = dualRadius > 0 ? dualRadius * 1.42 : 0;
     const horizontalLimit = this.viewportMapping.sceneHalfWidth * 1.12;
 
     for (let index = 0; index < baseSizes.length; index += 1) {
@@ -442,42 +473,60 @@ export class ParticleFieldRenderer {
       velocityX += Math.cos(ambientAngle) * 0.00042;
       velocityY += Math.sin(ambientAngle) * 0.00034;
 
-      activeHands.forEach((hand) => {
-        const deltaVector = subtract(hand.scenePalm, { x, y });
-        const pointDistance = Math.max(0.0001, Math.hypot(deltaVector.x, deltaVector.y));
-        const influence = clamp(1 - pointDistance / hand.sceneRadius, 0, 1) * hand.presence;
-
-        if (influence <= 0) {
-          return;
-        }
-
-        const direction = normalize(deltaVector);
-        const tangential = { x: -direction.y, y: direction.x };
-        glow += influence * (hand.gesture === "openPalm" ? 0.4 : 0.5);
-
-        if (hand.gesture === "pinch") {
-          velocityX += direction.x * this.profile.attractForce * influence * 0.0023 * (0.45 + hand.pinchStrength);
-          velocityY += direction.y * this.profile.attractForce * influence * 0.0023 * (0.45 + hand.pinchStrength);
-        } else if (hand.gesture === "openPalm") {
-          velocityX -= direction.x * this.profile.repelForce * influence * 0.002;
-          velocityY -= direction.y * this.profile.repelForce * influence * 0.002;
-        }
-
-        if (hand.gesture === "sweep" || hand.speed > 1.3) {
-          velocityX += hand.sceneVelocity.x * this.profile.sweepForce * influence * 0.038;
-          velocityY -= hand.sceneVelocity.y * this.profile.sweepForce * influence * 0.038;
-          velocityX += tangential.x * influence * 0.00055 * (hand.speed + 0.15);
-          velocityY += tangential.y * influence * 0.00055 * (hand.speed + 0.15);
-        }
-      });
-
       if (dualCenter && dualRadius > 0.06) {
-        const radial = subtract({ x, y }, dualCenter);
-        const band = Math.exp(-Math.pow(Math.hypot(radial.x, radial.y) - dualRadius, 2) / 0.055);
-        const orbital = normalize({ x: -radial.y, y: radial.x });
-        velocityX += orbital.x * band * 0.00115;
-        velocityY += orbital.y * band * 0.00115;
-        glow += band * 0.35;
+        const deltaVector = subtract(dualCenter, { x, y });
+        const pointDistance = Math.max(0.0001, Math.hypot(deltaVector.x, deltaVector.y));
+        const direction = normalize(deltaVector);
+        const orbital = normalize({ x: -direction.y, y: direction.x });
+        const influence = clamp(1 - pointDistance / dualInfluenceRadius, 0, 1);
+        const closeness = this.interaction.dualCloseness;
+        const band = clamp(1 - Math.abs(pointDistance - dualRadius) / Math.max(dualRadius * 0.72, 0.0001), 0, 1);
+
+        velocityX += direction.x * this.profile.attractForce * influence * (0.001 + closeness * 0.0043);
+        velocityY += direction.y * this.profile.attractForce * influence * (0.001 + closeness * 0.0043);
+        velocityX += orbital.x * band * (0.00018 + (1 - closeness) * 0.001);
+        velocityY += orbital.y * band * (0.00018 + (1 - closeness) * 0.001);
+
+        if (pointDistance > dualRadius * 1.08) {
+          const outerPull = clamp((pointDistance - dualRadius * 1.08) / Math.max(dualRadius, 0.0001), 0, 1);
+          velocityX += direction.x * outerPull * (0.00045 + closeness * 0.0012);
+          velocityY += direction.y * outerPull * (0.00045 + closeness * 0.0012);
+        }
+
+        glow += influence * (0.32 + closeness * 0.48) + band * 0.22;
+      } else {
+        activeHands.forEach((hand) => {
+          const deltaVector = subtract(hand.scenePalm, { x, y });
+          const pointDistance = Math.max(0.0001, Math.hypot(deltaVector.x, deltaVector.y));
+          const influence = clamp(1 - pointDistance / hand.sceneRadius, 0, 1) * hand.presence;
+
+          if (influence <= 0) {
+            return;
+          }
+
+          const direction = normalize(deltaVector);
+          const tangential = { x: -direction.y, y: direction.x };
+          glow += influence * (0.22 + hand.openAmount * 0.28 + hand.closure * 0.36);
+
+          if (hand.gesture === "closedFist") {
+            velocityX += direction.x * this.profile.attractForce * influence * (0.0016 + hand.closure * 0.0045);
+            velocityY += direction.y * this.profile.attractForce * influence * (0.0016 + hand.closure * 0.0045);
+            velocityX += tangential.x * influence * 0.00035 * (0.6 + hand.closure);
+            velocityY += tangential.y * influence * 0.00035 * (0.6 + hand.closure);
+          } else if (hand.gesture === "openPalm") {
+            velocityX -= direction.x * this.profile.repelForce * influence * (0.0012 + hand.openAmount * 0.004);
+            velocityY -= direction.y * this.profile.repelForce * influence * (0.0012 + hand.openAmount * 0.004);
+            velocityX += tangential.x * influence * 0.00024 * (0.5 + hand.openAmount);
+            velocityY += tangential.y * influence * 0.00024 * (0.5 + hand.openAmount);
+          }
+
+          if (hand.gesture === "sweep" || hand.speed > 1.15) {
+            velocityX += hand.sceneVelocity.x * this.profile.sweepForce * influence * 0.042;
+            velocityY -= hand.sceneVelocity.y * this.profile.sweepForce * influence * 0.042;
+            velocityX += tangential.x * influence * 0.0005 * (hand.speed + 0.18);
+            velocityY += tangential.y * influence * 0.0005 * (hand.speed + 0.18);
+          }
+        });
       }
 
       velocityX *= this.reducedMotion ? 0.958 : 0.972;
@@ -524,23 +573,42 @@ export class ParticleFieldRenderer {
 
       const palmPoint = toSceneVector(hand.palm);
       const pulse = 1 + Math.sin(this.interaction.lastUpdated * 0.005 + handIndex) * 0.08;
+      const ringMaterial = ring.material as THREE.SpriteMaterial;
+      const coreMaterial = core.material as THREE.SpriteMaterial;
+      const ringFlatten = lerp(0.45, 1, hand.sideTilt);
+      const coreFlatten = lerp(0.72, 1, hand.sideTilt);
+      const baseScale = hand.radius * (3 + hand.openAmount * 0.8 + hand.closure * 0.9) * pulse * this.overlayScale;
+      const overlayBias = clamp(this.interaction.paletteBias + (this.interaction.dualActive ? 0 : hand.paletteBias * 0.18), -1, 1);
+      const overlayMix = clamp((overlayBias + 1) * 0.5, 0, 1);
+      const tipPrimary = BLUE.clone().lerp(PINK, overlayMix);
+      const tipSecondary = tipPrimary.clone().lerp(WHITE, 0.42);
+      const trailColor = tipPrimary.clone().lerp(WHITE, 0.16);
+
       ring.visible = true;
       core.visible = true;
       ring.position.copy(palmPoint);
       core.position.copy(palmPoint);
-      ring.scale.setScalar(hand.radius * 3.4 * pulse * this.overlayScale);
-      core.scale.setScalar(hand.radius * 1.4 * (1 + hand.pinchStrength * 0.6) * this.overlayScale);
-      (ring.material as THREE.SpriteMaterial).opacity = hand.presence * (hand.gesture === "pinch" ? 0.92 : 0.55);
-      (core.material as THREE.SpriteMaterial).opacity = hand.presence * (0.48 + hand.pinchStrength * 0.4);
+      ring.scale.set(baseScale, baseScale * ringFlatten, 1);
+      core.scale.set(baseScale * 0.52, baseScale * 0.52 * coreFlatten, 1);
+      ringMaterial.rotation = hand.rollAngle;
+      coreMaterial.rotation = hand.rollAngle;
+      ringMaterial.color.copy(tipPrimary);
+      coreMaterial.color.copy(tipSecondary);
+      ringMaterial.opacity =
+        hand.presence *
+        (hand.gesture === "closedFist" ? 0.94 : hand.gesture === "openPalm" ? 0.78 : this.interaction.dualActive ? 0.72 : 0.56);
+      coreMaterial.opacity = hand.presence * (0.34 + hand.openAmount * 0.22 + hand.closure * 0.32);
 
       tips.forEach((tip, tipIndex) => {
         const tipPoint = toSceneVector(hand.fingertips[tipIndex]);
         tip.visible = true;
         tip.position.copy(tipPoint);
         const tipScale =
-          this.profile.tipScale * (tipIndex === 1 ? 1.2 : 1) * (1 + hand.pinchStrength * 0.4) * this.overlayScale;
+          this.profile.tipScale * (tipIndex === 1 ? 1.18 : 1) * (0.72 + hand.openAmount * 0.95 + hand.closure * 0.22) * this.overlayScale;
         tip.scale.setScalar(tipScale);
-        (tip.material as THREE.SpriteMaterial).opacity = hand.presence * 0.82;
+        const tipMaterial = tip.material as THREE.SpriteMaterial;
+        tipMaterial.color.copy(tipIndex % 2 === 0 ? tipPrimary : tipSecondary);
+        tipMaterial.opacity = hand.presence * (0.42 + hand.openAmount * 0.4);
       });
 
       const positions = trailAttribute.array as Float32Array;
@@ -555,7 +623,9 @@ export class ParticleFieldRenderer {
         positions[trailIndex * 3 + 2] = 0;
       }
       trailAttribute.needsUpdate = true;
-      (trail.material as THREE.LineBasicMaterial).opacity = hand.presence * 0.72;
+      const trailMaterial = trail.material as THREE.LineBasicMaterial;
+      trailMaterial.color.copy(trailColor);
+      trailMaterial.opacity = hand.presence * (this.interaction.dualActive ? 0.58 : 0.72);
     }
   }
 

@@ -25,16 +25,16 @@ export function IntroGate({ phase, onStart }: IntroGateProps) {
 
   return (
     <section className="absolute inset-0 flex items-end justify-center px-4 pb-8 pt-16 sm:px-6 sm:items-center sm:pb-6">
-      <div className="glass-panel relative w-full max-w-xl rounded-[2rem] px-5 pb-8 pt-6 sm:px-8 sm:pb-9 sm:pt-8">
+      <div className="glass-panel relative w-full max-w-xl rounded-[2rem] px-5 pb-16 pt-6 sm:px-8 sm:pb-16 sm:pt-8">
         <div className="mb-6 flex items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-[1.6rem] border border-white/12 bg-white/4 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
-            <img alt="Logo e-Meow" className="h-11 w-11 object-contain" src={assetUrl("brand/emeow-logo-white.png")} />
+          <div className="flex h-16 w-16 items-center justify-center">
+            <img alt="Logo e-Meow" className="h-16 w-16 object-contain" src={assetUrl("brand/emeow-logo-white.png")} />
           </div>
           <div className="min-w-0">
             <p className="mb-1 text-xs font-semibold uppercase tracking-[0.32em] text-foreground-muted">
               Experiencia interactiva
             </p>
-            <p className="text-base font-medium lowercase tracking-[0.24em] text-foreground">motion lab</p>
+            <p className="text-base font-medium tracking-[0.18em] text-foreground">Motion Lab</p>
           </div>
         </div>
 
@@ -48,7 +48,7 @@ export function IntroGate({ phase, onStart }: IntroGateProps) {
           </div>
 
           <button
-            className="focus-ring inline-flex min-h-12 w-full items-center justify-center rounded-full border border-white/15 bg-[linear-gradient(135deg,rgba(128,235,255,0.88),rgba(255,233,175,0.88))] px-6 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-105 disabled:cursor-progress disabled:opacity-72 sm:w-auto"
+            className="focus-ring inline-flex min-h-12 w-full items-center justify-center rounded-full border border-white/15 bg-[linear-gradient(135deg,rgba(128,235,255,0.88),rgba(248,62,165,0.88))] px-6 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-105 disabled:cursor-progress disabled:opacity-72 sm:w-auto"
             disabled={busy}
             onClick={() => {
               void onStart();

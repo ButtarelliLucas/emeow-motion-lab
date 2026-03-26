@@ -28,7 +28,7 @@ export default function App() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
       <ExperienceViewport cameraVisible={!showFallback && !showIntro} canvasRef={canvasRef} videoRef={videoRef} />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(198,243,255,0.16),transparent_34%),radial-gradient(circle_at_bottom,rgba(255,241,207,0.14),transparent_30%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(198,243,255,0.16),transparent_34%),radial-gradient(circle_at_bottom,rgba(248,62,165,0.16),transparent_30%)]" />
 
       {showHud ? (
         <StatusHud
