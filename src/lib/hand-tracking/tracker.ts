@@ -8,8 +8,16 @@ import {
 import { EXPERIENCE_CONFIG, getQualityProfile } from "@/config/experience";
 import { assetUrl } from "@/lib/assets";
 import { measureHand } from "@/lib/hand-tracking/gestures";
-import { clamp, lerp, lerpVec2, length } from "@/lib/math";
-import type { GestureState, HandVisualState, InteractionState, QualityTier, Vec2 } from "@/types/experience";
+import { clamp, distance, lerp, lerpVec2, length } from "@/lib/math";
+import { createViewportMapping, mapNormalizedPointToScene } from "@/lib/viewport-mapping";
+import type {
+  GestureState,
+  HandVisualState,
+  InteractionState,
+  QualityTier,
+  Vec2,
+  ViewportMapping,
+} from "@/types/experience";
 
 interface TrackerCallbacks {
   onInteraction: (interaction: InteractionState) => void;
@@ -23,7 +31,10 @@ interface TrackerOptions {
 }
 
 interface InternalHandState extends HandVisualState {
-  landmarks: Vec2[];
+  rawPalm: Vec2;
+  rawFingertips: Vec2[];
+  rawPinchPoint: Vec2;
+  rawTrail: Vec2[];
   lastSeenAt: number;
 }
 
@@ -40,6 +51,19 @@ function handednessKey(handedness: Category[][], index: number) {
   return category ? `hand-${category}` : `hand-${index}`;
 }
 
+function smoothingAlpha(moving: boolean, stillAlpha: number, movingAlpha: number) {
+  return moving ? movingAlpha : stillAlpha;
+}
+
+function defaultViewportMapping() {
+  return createViewportMapping({
+    viewportWidth: 1,
+    viewportHeight: 1,
+    videoWidth: 1,
+    videoHeight: 1,
+  });
+}
+
 export class HandTrackerController {
   private landmarker: HandLandmarker | null = null;
   private video: HTMLVideoElement | null = null;
@@ -47,12 +71,14 @@ export class HandTrackerController {
   private running = false;
   private paused = false;
   private rafId = 0;
+  private videoFrameId = 0;
   private lastTrackedAt = 0;
   private lastVideoTime = -1;
   private readonly hands = new Map<string, InternalHandState>();
   private readonly reducedMotion: boolean;
   private trackIntervalMs: number;
   private trailLength: number;
+  private viewportMapping: ViewportMapping = defaultViewportMapping();
 
   constructor({ qualityTier, reducedMotion, callbacks }: TrackerOptions) {
     this.callbacks = callbacks;
@@ -95,6 +121,20 @@ export class HandTrackerController {
     this.video = video;
   }
 
+  setViewportMapping(mapping: ViewportMapping) {
+    this.viewportMapping = mapping;
+
+    this.hands.forEach((hand, key) => {
+      this.hands.set(key, {
+        ...hand,
+        palm: mapNormalizedPointToScene(hand.rawPalm, mapping),
+        fingertips: hand.rawFingertips.map((tip) => mapNormalizedPointToScene(tip, mapping)),
+        pinchPoint: mapNormalizedPointToScene(hand.rawPinchPoint, mapping),
+        trail: hand.rawTrail.map((point) => mapNormalizedPointToScene(point, mapping)),
+      });
+    });
+  }
+
   setQualityTier(qualityTier: QualityTier) {
     this.trackIntervalMs = 1000 / EXPERIENCE_CONFIG.trackingTargetFps[qualityTier];
     this.trailLength = getQualityProfile(qualityTier, this.reducedMotion).trailLength;
@@ -109,22 +149,24 @@ export class HandTrackerController {
     this.paused = false;
     this.lastTrackedAt = 0;
     this.lastVideoTime = -1;
-    this.rafId = window.requestAnimationFrame(this.tick);
+    this.scheduleNextTick();
   }
 
   stop() {
     this.running = false;
-    if (this.rafId) {
-      window.cancelAnimationFrame(this.rafId);
-      this.rafId = 0;
-    }
+    this.cancelScheduledTick();
   }
 
   setPaused(paused: boolean) {
     this.paused = paused;
 
-    if (!paused && this.running && !this.rafId) {
-      this.rafId = window.requestAnimationFrame(this.tick);
+    if (paused) {
+      this.cancelScheduledTick();
+      return;
+    }
+
+    if (this.running && !this.rafId && !this.videoFrameId) {
+      this.scheduleNextTick();
     }
   }
 
@@ -146,33 +188,64 @@ export class HandTrackerController {
     this.hands.clear();
   }
 
+  private cancelScheduledTick() {
+    if (this.rafId) {
+      window.cancelAnimationFrame(this.rafId);
+      this.rafId = 0;
+    }
+
+    if (this.videoFrameId && this.video?.cancelVideoFrameCallback) {
+      this.video.cancelVideoFrameCallback(this.videoFrameId);
+      this.videoFrameId = 0;
+    }
+  }
+
+  private scheduleNextTick() {
+    if (!this.running || this.paused) {
+      return;
+    }
+
+    if (this.video?.requestVideoFrameCallback) {
+      this.videoFrameId = this.video.requestVideoFrameCallback(this.handleVideoFrame);
+      return;
+    }
+
+    this.rafId = window.requestAnimationFrame(this.tick);
+  }
+
+  private readonly handleVideoFrame = (now: number) => {
+    this.videoFrameId = 0;
+    this.tick(now);
+  };
+
   private readonly tick = (now: number) => {
     if (!this.running || this.paused) {
-      this.rafId = 0;
+      this.cancelScheduledTick();
       return;
     }
 
-    if (!this.landmarker || !this.video || this.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      this.rafId = window.requestAnimationFrame(this.tick);
+    const video = this.video;
+    if (!this.landmarker || !video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      this.scheduleNextTick();
       return;
     }
 
-    if (this.video.currentTime === this.lastVideoTime || now - this.lastTrackedAt < this.trackIntervalMs) {
-      this.rafId = window.requestAnimationFrame(this.tick);
+    const usingVideoFrames = typeof video.requestVideoFrameCallback === "function";
+    if ((!usingVideoFrames && video.currentTime === this.lastVideoTime) || now - this.lastTrackedAt < this.trackIntervalMs) {
+      this.scheduleNextTick();
       return;
     }
 
     this.lastTrackedAt = now;
-    this.lastVideoTime = this.video.currentTime;
+    this.lastVideoTime = video.currentTime;
 
     const startedAt = performance.now();
-    const result = this.landmarker.detectForVideo(this.video, now);
+    const result = this.landmarker.detectForVideo(video, now);
     const trackingMs = performance.now() - startedAt;
 
     this.callbacks.onTrackingMetrics(trackingMs);
     this.processResult(result, now);
-
-    this.rafId = window.requestAnimationFrame(this.tick);
+    this.scheduleNextTick();
   };
 
   private processResult(result: HandLandmarkerResult, now: number) {
@@ -194,23 +267,40 @@ export class HandTrackerController {
         },
         confidence,
       );
-
-      const palm = previous ? lerpVec2(previous.palm, measured.palm, 0.45) : measured.palm;
-      const fingertips = measured.fingertips.map((tip, fingertipIndex) =>
-        previous?.fingertips[fingertipIndex]
-          ? lerpVec2(previous.fingertips[fingertipIndex], tip, 0.38)
-          : tip,
-      );
-      const pinchPoint = previous ? lerpVec2(previous.pinchPoint, measured.pinchPoint, 0.4) : measured.pinchPoint;
-      const velocity = previous
+      const elapsedSeconds = Math.max(0.016, (now - (previous?.lastSeenAt ?? now - 16)) / 1000);
+      const rawVelocity = previous
         ? {
-            x: (palm.x - previous.palm.x) / Math.max(0.016, (now - previous.lastSeenAt) / 1000),
-            y: (palm.y - previous.palm.y) / Math.max(0.016, (now - previous.lastSeenAt) / 1000),
+            x: (measured.palm.x - previous.rawPalm.x) / elapsedSeconds,
+            y: (measured.palm.y - previous.rawPalm.y) / elapsedSeconds,
           }
         : { x: 0, y: 0 };
-      const speed = length(velocity);
-      const gesture = detectSweepGesture(speed, measured.gesture);
-      const trail = [palm, ...(previous?.trail ?? [])].slice(0, this.trailLength);
+      const rawSpeed = length(rawVelocity);
+      const moving = previous ? distance(measured.palm, previous.rawPalm) > 0.012 || rawSpeed > 0.55 : false;
+
+      const rawPalm = previous
+        ? lerpVec2(previous.rawPalm, measured.palm, smoothingAlpha(moving, 0.42, 0.62))
+        : measured.palm;
+      const rawFingertips = measured.fingertips.map((tip, fingertipIndex) =>
+        previous?.rawFingertips[fingertipIndex]
+          ? lerpVec2(previous.rawFingertips[fingertipIndex], tip, smoothingAlpha(moving, 0.38, 0.58))
+          : tip,
+      );
+      const rawPinchPoint = previous
+        ? lerpVec2(previous.rawPinchPoint, measured.pinchPoint, smoothingAlpha(moving, 0.4, 0.64))
+        : measured.pinchPoint;
+      const palm = mapNormalizedPointToScene(rawPalm, this.viewportMapping);
+      const fingertips = rawFingertips.map((tip) => mapNormalizedPointToScene(tip, this.viewportMapping));
+      const pinchPoint = mapNormalizedPointToScene(rawPinchPoint, this.viewportMapping);
+      const velocity = previous
+        ? {
+            x: (palm.x - previous.palm.x) / elapsedSeconds,
+            y: (palm.y - previous.palm.y) / elapsedSeconds,
+          }
+        : { x: 0, y: 0 };
+      const gesture = detectSweepGesture(rawSpeed, measured.gesture);
+      const rawTrail = [rawPalm, ...(previous?.rawTrail ?? [])].slice(0, this.trailLength);
+      const trail = rawTrail.map((point) => mapNormalizedPointToScene(point, this.viewportMapping));
+      const radiusTarget = measured.radius * (this.viewportMapping.contentHeight / this.viewportMapping.viewportHeight);
 
       this.hands.set(key, {
         id: key,
@@ -218,18 +308,18 @@ export class HandTrackerController {
         palm,
         fingertips,
         pinchPoint,
-        radius: lerp(previous?.radius ?? measured.radius, measured.radius, 0.36),
+        radius: lerp(previous?.radius ?? radiusTarget, radiusTarget, 0.36),
         pinchStrength: lerp(previous?.pinchStrength ?? measured.pinchStrength, measured.pinchStrength, 0.35),
         openness: lerp(previous?.openness ?? measured.openness, measured.openness, 0.35),
-        speed,
+        speed: rawSpeed,
         gesture,
         trail,
         velocity,
         presence: 1,
-        landmarks: landmarks.map((landmark) => ({
-          x: 1 - landmark.x,
-          y: landmark.y,
-        })),
+        rawPalm,
+        rawFingertips,
+        rawPinchPoint,
+        rawTrail,
         lastSeenAt: now,
       });
     });

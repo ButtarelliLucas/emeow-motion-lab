@@ -35,9 +35,9 @@ export const EXPERIENCE_CONFIG: ExperienceConfig = {
   openPalmThreshold: 1.18,
   sweepSpeedThreshold: 1.25,
   trackingTargetFps: {
-    low: 18,
-    medium: 21,
-    high: 24,
+    low: 24,
+    medium: 28,
+    high: 32,
   },
   defaultMetrics: DEFAULT_METRICS,
 };

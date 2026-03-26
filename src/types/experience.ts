@@ -45,6 +45,18 @@ export interface ExperienceConfig {
   defaultMetrics: ExperienceMetrics;
 }
 
+export interface ViewportMapping {
+  viewportWidth: number;
+  viewportHeight: number;
+  videoWidth: number;
+  videoHeight: number;
+  contentWidth: number;
+  contentHeight: number;
+  offsetX: number;
+  offsetY: number;
+  sceneHalfWidth: number;
+}
+
 export interface HandVisualState {
   id: string;
   palm: Vec2;

@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { getQualityProfile } from "@/config/experience";
 import { average, clamp, distance, lerp, normalize, scale, subtract } from "@/lib/math";
 import { nextHigherQuality, nextLowerQuality } from "@/lib/quality";
-import type { InteractionState, QualityTier, Vec2 } from "@/types/experience";
+import { createViewportMapping } from "@/lib/viewport-mapping";
+import type { InteractionState, QualityTier, Vec2, ViewportMapping } from "@/types/experience";
 
 interface RendererOptions {
   tier: QualityTier;
@@ -20,8 +21,8 @@ interface ParticleBuffers {
   baseSizes: Float32Array;
 }
 
-function toScenePoint(point: Vec2) {
-  return new THREE.Vector3(point.x * 2 - 1, 1 - point.y * 2, 0);
+function toSceneVector(point: Vec2) {
+  return new THREE.Vector3(point.x, point.y, 0);
 }
 
 function createGlowTexture(innerOpacity: number, outerOpacity: number) {
@@ -73,16 +74,28 @@ function createRingTexture() {
   return new THREE.CanvasTexture(canvas);
 }
 
+function createDefaultViewportMapping(canvas: HTMLCanvasElement) {
+  const viewportWidth = canvas.clientWidth || window.innerWidth || 1;
+  const viewportHeight = canvas.clientHeight || window.innerHeight || 1;
+
+  return createViewportMapping({
+    viewportWidth,
+    viewportHeight,
+    videoWidth: viewportWidth,
+    videoHeight: viewportHeight,
+  });
+}
+
 export class ParticleFieldRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-  private readonly canvas: HTMLCanvasElement;
   private readonly onQualityChange: (tier: QualityTier) => void;
   private readonly onStats: (frameMs: number) => void;
   private readonly reducedMotion: boolean;
   private tier: QualityTier = "medium";
   private profile = getQualityProfile("medium", false);
+  private viewportMapping: ViewportMapping;
   private interaction: InteractionState = {
     hands: [],
     handsDetected: false,
@@ -97,6 +110,7 @@ export class ParticleFieldRenderer {
   private frameMs = 16.7;
   private qualityDrift = 0;
   private pointScale = 3;
+  private overlayScale = 1;
   private particles!: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private particleBuffers!: ParticleBuffers;
   private palmRings: THREE.Sprite[] = [];
@@ -107,10 +121,10 @@ export class ParticleFieldRenderer {
   private ringTexture = createRingTexture();
 
   constructor(canvas: HTMLCanvasElement, { tier, reducedMotion, onQualityChange, onStats }: RendererOptions) {
-    this.canvas = canvas;
     this.onQualityChange = onQualityChange;
     this.onStats = onStats;
     this.reducedMotion = reducedMotion;
+    this.viewportMapping = createDefaultViewportMapping(canvas);
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       alpha: true,
@@ -120,14 +134,19 @@ export class ParticleFieldRenderer {
     this.renderer.setClearColor(0x000000, 0);
     this.camera.position.z = 2;
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    this.applyViewportMapping(this.viewportMapping.sceneHalfWidth, false);
     this.createHandsVisuals();
     this.setQualityTier(tier, false);
-    this.resize();
-    window.addEventListener("resize", this.resize);
   }
 
   setInteraction(interaction: InteractionState) {
     this.interaction = interaction;
+  }
+
+  setViewportMapping(mapping: ViewportMapping) {
+    const previousHalfWidth = this.viewportMapping.sceneHalfWidth;
+    this.viewportMapping = mapping;
+    this.applyViewportMapping(previousHalfWidth);
   }
 
   updateQualityTier(tier: QualityTier) {
@@ -164,7 +183,6 @@ export class ParticleFieldRenderer {
 
   dispose() {
     this.stop();
-    window.removeEventListener("resize", this.resize);
     this.renderer.dispose();
     this.glowTexture.dispose();
     this.ringTexture.dispose();
@@ -191,11 +209,48 @@ export class ParticleFieldRenderer {
   private setQualityTier(tier: QualityTier, emit = true) {
     this.tier = tier;
     this.profile = getQualityProfile(tier, this.reducedMotion);
+    this.applyViewportMapping(this.viewportMapping.sceneHalfWidth, false);
     this.buildParticles();
 
     if (emit) {
       this.onQualityChange(tier);
     }
+  }
+
+  private applyViewportMapping(previousHalfWidth: number, remapParticles = true) {
+    const { viewportWidth, viewportHeight, sceneHalfWidth } = this.viewportMapping;
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, this.profile.dprCap);
+
+    this.camera.left = -sceneHalfWidth;
+    this.camera.right = sceneHalfWidth;
+    this.camera.top = 1;
+    this.camera.bottom = -1;
+    this.camera.updateProjectionMatrix();
+
+    this.pointScale = Math.max(1.7, Math.min(viewportWidth, viewportHeight) / 300);
+    this.overlayScale = clamp(390 / Math.max(320, Math.min(viewportWidth, viewportHeight)), 0.72, 1.08);
+    this.renderer.setPixelRatio(pixelRatio);
+    this.renderer.setSize(viewportWidth, viewportHeight, false);
+
+    if (remapParticles && this.particleBuffers) {
+      this.remapParticleField(previousHalfWidth);
+    }
+  }
+
+  private remapParticleField(previousHalfWidth: number) {
+    const { positions, velocities } = this.particleBuffers;
+    const nextHalfWidth = this.viewportMapping.sceneHalfWidth;
+    const positionScaleX = nextHalfWidth / Math.max(previousHalfWidth, 0.0001);
+    const horizontalLimit = nextHalfWidth * 1.12;
+
+    for (let index = 0; index < positions.length / 3; index += 1) {
+      const positionIndex = index * 3;
+      const velocityIndex = index * 2;
+      positions[positionIndex] = clamp(positions[positionIndex] * positionScaleX, -horizontalLimit, horizontalLimit);
+      velocities[velocityIndex] *= positionScaleX;
+    }
+
+    this.particles.geometry.attributes.position.needsUpdate = true;
   }
 
   private buildParticles() {
@@ -207,11 +262,12 @@ export class ParticleFieldRenderer {
     const alphas = new Float32Array(count);
     const seeds = new Float32Array(count);
     const baseSizes = new Float32Array(count);
+    const halfWidth = this.viewportMapping.sceneHalfWidth;
 
     for (let index = 0; index < count; index += 1) {
       const positionIndex = index * 3;
       const velocityIndex = index * 2;
-      positions[positionIndex] = THREE.MathUtils.randFloatSpread(2);
+      positions[positionIndex] = THREE.MathUtils.randFloat(-halfWidth, halfWidth);
       positions[positionIndex + 1] = THREE.MathUtils.randFloatSpread(2);
       positions[positionIndex + 2] = THREE.MathUtils.randFloat(-0.06, 0.08);
       velocities[velocityIndex] = THREE.MathUtils.randFloatSpread(0.0014);
@@ -358,18 +414,17 @@ export class ParticleFieldRenderer {
     const { positions, velocities, sizes, alphas, seeds, baseSizes } = this.particleBuffers;
     const activeHands = this.interaction.hands.map((hand) => ({
       ...hand,
-      scenePalm: toScenePoint(hand.palm),
+      scenePalm: hand.palm,
       sceneVelocity: scale(hand.velocity, 0.025),
       sceneRadius: Math.max(0.15, hand.radius * 2.8),
     }));
     const dualCenter =
       this.interaction.dualActive && activeHands.length > 1
-        ? toScenePoint(average(activeHands.map((hand) => hand.palm)))
+        ? average(activeHands.map((hand) => hand.palm))
         : null;
     const dualRadius =
-      dualCenter && activeHands.length > 1
-        ? distance(activeHands[0].palm, activeHands[1].palm) * 1.9
-        : 0;
+      dualCenter && activeHands.length > 1 ? distance(activeHands[0].palm, activeHands[1].palm) * 1.9 : 0;
+    const horizontalLimit = this.viewportMapping.sceneHalfWidth * 1.12;
 
     for (let index = 0; index < baseSizes.length; index += 1) {
       const positionIndex = index * 3;
@@ -388,7 +443,7 @@ export class ParticleFieldRenderer {
       velocityY += Math.sin(ambientAngle) * 0.00034;
 
       activeHands.forEach((hand) => {
-        const deltaVector = subtract({ x: hand.scenePalm.x, y: hand.scenePalm.y }, { x, y });
+        const deltaVector = subtract(hand.scenePalm, { x, y });
         const pointDistance = Math.max(0.0001, Math.hypot(deltaVector.x, deltaVector.y));
         const influence = clamp(1 - pointDistance / hand.sceneRadius, 0, 1) * hand.presence;
 
@@ -417,7 +472,7 @@ export class ParticleFieldRenderer {
       });
 
       if (dualCenter && dualRadius > 0.06) {
-        const radial = subtract({ x, y }, { x: dualCenter.x, y: dualCenter.y });
+        const radial = subtract({ x, y }, dualCenter);
         const band = Math.exp(-Math.pow(Math.hypot(radial.x, radial.y) - dualRadius, 2) / 0.055);
         const orbital = normalize({ x: -radial.y, y: radial.x });
         velocityX += orbital.x * band * 0.00115;
@@ -430,8 +485,8 @@ export class ParticleFieldRenderer {
       x += velocityX * delta * 60;
       y += velocityY * delta * 60;
 
-      if (x > 1.12) x = -1.12;
-      if (x < -1.12) x = 1.12;
+      if (x > horizontalLimit) x = -horizontalLimit;
+      if (x < -horizontalLimit) x = horizontalLimit;
       if (y > 1.12) y = -1.12;
       if (y < -1.12) y = 1.12;
 
@@ -467,36 +522,36 @@ export class ParticleFieldRenderer {
         continue;
       }
 
-      const palmPoint = toScenePoint(hand.palm);
+      const palmPoint = toSceneVector(hand.palm);
       const pulse = 1 + Math.sin(this.interaction.lastUpdated * 0.005 + handIndex) * 0.08;
       ring.visible = true;
       core.visible = true;
       ring.position.copy(palmPoint);
       core.position.copy(palmPoint);
-      ring.scale.setScalar(hand.radius * 3.4 * pulse);
-      core.scale.setScalar(hand.radius * 1.4 * (1 + hand.pinchStrength * 0.6));
+      ring.scale.setScalar(hand.radius * 3.4 * pulse * this.overlayScale);
+      core.scale.setScalar(hand.radius * 1.4 * (1 + hand.pinchStrength * 0.6) * this.overlayScale);
       (ring.material as THREE.SpriteMaterial).opacity = hand.presence * (hand.gesture === "pinch" ? 0.92 : 0.55);
       (core.material as THREE.SpriteMaterial).opacity = hand.presence * (0.48 + hand.pinchStrength * 0.4);
 
       tips.forEach((tip, tipIndex) => {
-        const tipPoint = toScenePoint(hand.fingertips[tipIndex]);
+        const tipPoint = toSceneVector(hand.fingertips[tipIndex]);
         tip.visible = true;
         tip.position.copy(tipPoint);
-        const tipScale = this.profile.tipScale * (tipIndex === 1 ? 1.2 : 1) * (1 + hand.pinchStrength * 0.4);
+        const tipScale =
+          this.profile.tipScale * (tipIndex === 1 ? 1.2 : 1) * (1 + hand.pinchStrength * 0.4) * this.overlayScale;
         tip.scale.setScalar(tipScale);
         (tip.material as THREE.SpriteMaterial).opacity = hand.presence * 0.82;
       });
 
       const positions = trailAttribute.array as Float32Array;
       hand.trail.forEach((point, trailIndex) => {
-        const trailPoint = toScenePoint(point);
-        positions[trailIndex * 3] = trailPoint.x;
-        positions[trailIndex * 3 + 1] = trailPoint.y;
+        positions[trailIndex * 3] = point.x;
+        positions[trailIndex * 3 + 1] = point.y;
         positions[trailIndex * 3 + 2] = 0;
       });
       for (let trailIndex = hand.trail.length; trailIndex < positions.length / 3; trailIndex += 1) {
-        positions[trailIndex * 3] = palmPoint.x;
-        positions[trailIndex * 3 + 1] = palmPoint.y;
+        positions[trailIndex * 3] = hand.palm.x;
+        positions[trailIndex * 3 + 1] = hand.palm.y;
         positions[trailIndex * 3 + 2] = 0;
       }
       trailAttribute.needsUpdate = true;
@@ -532,13 +587,4 @@ export class ParticleFieldRenderer {
       }
     }
   }
-
-  private readonly resize = () => {
-    const width = this.canvas.clientWidth || window.innerWidth;
-    const height = this.canvas.clientHeight || window.innerHeight;
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, this.profile.dprCap);
-    this.pointScale = Math.max(1.7, Math.min(width, height) / 300);
-    this.renderer.setPixelRatio(pixelRatio);
-    this.renderer.setSize(width, height, false);
-  };
 }

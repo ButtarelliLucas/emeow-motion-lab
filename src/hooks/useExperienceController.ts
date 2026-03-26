@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { DEFAULT_METRICS, EXPERIENCE_CONFIG } from "@/config/experience";
 import { detectInitialQualityTier } from "@/lib/quality";
 import { ParticleFieldRenderer } from "@/lib/particles/renderer";
+import { createViewportMapping } from "@/lib/viewport-mapping";
 import type { HandTrackerController } from "@/lib/hand-tracking/tracker";
-import type { ExperiencePhase, GestureState, OverlayStatus, QualityTier } from "@/types/experience";
+import type { ExperiencePhase, GestureState, OverlayStatus, QualityTier, ViewportMapping } from "@/types/experience";
 
 const LIVE_PHASES: ExperiencePhase[] = ["calibrating", "live", "handMissing"];
 
@@ -62,6 +63,40 @@ function waitForVideoReady(video: HTMLVideoElement, timeoutMs: number) {
     video.addEventListener("canplay", onReady, { once: true });
     video.addEventListener("error", onError, { once: true });
   });
+}
+
+function getViewportMapping(
+  video: HTMLVideoElement | null,
+  canvas: HTMLCanvasElement | null,
+): ViewportMapping | null {
+  if (!canvas) {
+    return null;
+  }
+
+  const viewportWidth = canvas.clientWidth || window.innerWidth || 1;
+  const viewportHeight = canvas.clientHeight || window.innerHeight || 1;
+
+  return createViewportMapping({
+    viewportWidth,
+    viewportHeight,
+    videoWidth: video?.videoWidth || viewportWidth,
+    videoHeight: video?.videoHeight || viewportHeight,
+  });
+}
+
+function syncViewportMapping(
+  video: HTMLVideoElement | null,
+  canvas: HTMLCanvasElement | null,
+  renderer: ParticleFieldRenderer | null,
+  tracker: HandTrackerController | null,
+) {
+  const mapping = getViewportMapping(video, canvas);
+  if (!mapping) {
+    return;
+  }
+
+  renderer?.setViewportMapping(mapping);
+  tracker?.setViewportMapping(mapping);
 }
 
 export function useExperienceController() {
@@ -149,6 +184,28 @@ export function useExperienceController() {
       rendererRef.current = null;
     };
   }, [reducedMotion]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return undefined;
+    }
+
+    const sync = () => {
+      syncViewportMapping(videoRef.current, canvasRef.current, rendererRef.current, trackerRef.current);
+    };
+
+    sync();
+
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
+    observer?.observe(canvas);
+    window.addEventListener("resize", sync);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, []);
 
   useEffect(() => {
     rendererRef.current?.updateQualityTier(qualityTier);
@@ -253,6 +310,7 @@ export function useExperienceController() {
       videoElement.srcObject = stream;
 
       await waitForVideoReady(videoElement, 6000);
+      syncViewportMapping(videoElement, canvasRef.current, rendererRef.current, trackerRef.current);
       await withTimeout(
         Promise.resolve(videoElement.play()),
         8000,
@@ -280,6 +338,7 @@ export function useExperienceController() {
       });
 
       trackerRef.current = tracker;
+      syncViewportMapping(videoElement, canvasRef.current, rendererRef.current, tracker);
       await withTimeout(tracker.init(), 12000, "La escena interactiva tardo demasiado en iniciar.");
       tracker.attachVideo(videoElement);
       tracker.start();
