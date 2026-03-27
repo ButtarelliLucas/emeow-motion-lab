@@ -168,6 +168,7 @@ export function useExperienceController() {
     primaryGesture: "idle",
     qualityTier,
     trackingBackend: null,
+    trackingBackendReason: null,
     metrics: DEFAULT_METRICS,
     errorMessage: null,
   });
@@ -275,13 +276,14 @@ export function useExperienceController() {
     }));
   };
 
-  const setTrackingBackend = (trackingBackend: TrackingBackend) => {
+  const setTrackingBackend = (trackingBackend: TrackingBackend, trackingBackendReason: string | null = null) => {
     setOverlayStatus((current) =>
-      current.trackingBackend === trackingBackend
+      current.trackingBackend === trackingBackend && current.trackingBackendReason === trackingBackendReason
         ? current
         : {
             ...current,
             trackingBackend,
+            trackingBackendReason,
           },
     );
   };
@@ -568,6 +570,7 @@ export function useExperienceController() {
       handsDetected: false,
       primaryGesture: "idle",
       trackingBackend: null,
+      trackingBackendReason: null,
     }));
 
     try {
@@ -615,8 +618,8 @@ export function useExperienceController() {
           onTrackingMetrics: (trackingMs) => {
             setMetrics(undefined, trackingMs);
           },
-          onTrackingBackend: (trackingBackend) => {
-            setTrackingBackend(trackingBackend);
+          onTrackingBackend: (trackingBackend, trackingBackendReason) => {
+            setTrackingBackend(trackingBackend, trackingBackendReason ?? null);
           },
         },
       });

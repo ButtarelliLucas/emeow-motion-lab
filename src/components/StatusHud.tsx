@@ -86,9 +86,16 @@ export function StatusHud({
               ) : null}
 
               {trackingBackend ? (
-                <span className="w-fit rounded-full border border-cyan-200/12 bg-cyan-200/6 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.22em] text-foreground-muted/90">
-                  {trackingBackend}
-                </span>
+                <div className="flex max-w-[20rem] flex-col items-start gap-1 sm:items-end">
+                  <span className="w-fit rounded-full border border-cyan-200/12 bg-cyan-200/6 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.22em] text-foreground-muted/90">
+                    {trackingBackend}
+                  </span>
+                  {overlayStatus.trackingBackendReason ? (
+                    <span className="text-[10px] leading-4 text-foreground-muted/70">
+                      {overlayStatus.trackingBackendReason}
+                    </span>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -112,6 +119,12 @@ export function StatusHud({
                   Frame {overlayStatus.metrics.frameMs.toFixed(1)} ms / Tracking{" "}
                   {overlayStatus.metrics.trackingMs.toFixed(1)} ms
                 </p>
+                {overlayStatus.trackingBackend ? (
+                  <p>
+                    Backend {trackingBackend}
+                    {overlayStatus.trackingBackendReason ? `: ${overlayStatus.trackingBackendReason}` : ""}
+                  </p>
+                ) : null}
                 {helpItems.map((item) => (
                   <p key={item}>{item}</p>
                 ))}

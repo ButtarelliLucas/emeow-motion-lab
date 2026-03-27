@@ -111,6 +111,7 @@ export interface OverlayStatus {
   primaryGesture: GestureState;
   qualityTier: QualityTier;
   trackingBackend: TrackingBackend | null;
+  trackingBackendReason: string | null;
   metrics: ExperienceMetrics;
   errorMessage: string | null;
 }

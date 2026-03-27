@@ -7,7 +7,7 @@ import type { InteractionState, QualityTier, TrackingBackend, ViewportMapping } 
 interface TrackerCallbacks {
   onInteraction: (interaction: InteractionState) => void;
   onTrackingMetrics: (trackingMs: number) => void;
-  onTrackingBackend: (backend: TrackingBackend) => void;
+  onTrackingBackend: (backend: TrackingBackend, reason?: string | null) => void;
 }
 
 interface TrackerOptions {
@@ -100,7 +100,7 @@ export class HandTrackerController implements HandTrackingControllerLike {
           if (event.data.type === "ready") {
             window.clearTimeout(timeoutId);
             this.workerReady = true;
-            this.reportBackend("parallel");
+            this.reportBackend("parallel", "Worker hand tracker active.");
             this.worker?.removeEventListener("message", handleReady);
             resolve();
           } else if (event.data.type === "error" && event.data.phase === "init") {
@@ -354,13 +354,13 @@ export class HandTrackerController implements HandTrackingControllerLike {
     this.worker.postMessage(message, transfer);
   }
 
-  private reportBackend(backend: TrackingBackend) {
-    if (this.reportedBackend === backend) {
+  private reportBackend(backend: TrackingBackend, reason: string | null = null) {
+    if (this.reportedBackend === backend && (!reason || backend === "parallel")) {
       return;
     }
 
     this.reportedBackend = backend;
-    this.callbacks.onTrackingBackend(backend);
+    this.callbacks.onTrackingBackend(backend, reason);
   }
 
   private disposeWorker() {
@@ -410,7 +410,7 @@ export class HandTrackerController implements HandTrackingControllerLike {
           fallback.attachVideo(this.video);
         }
         this.fallback = fallback;
-        this.reportBackend("legacy");
+        this.reportBackend("legacy", reason);
         if (this.running) {
           fallback.start();
         }

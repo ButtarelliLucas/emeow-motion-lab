@@ -12,7 +12,7 @@ import type { InteractionState, QualityTier, TrackingBackend, ViewportMapping } 
 interface TrackerCallbacks {
   onInteraction: (interaction: InteractionState) => void;
   onTrackingMetrics: (trackingMs: number) => void;
-  onTrackingBackend: (backend: TrackingBackend) => void;
+  onTrackingBackend: (backend: TrackingBackend, reason?: string | null) => void;
 }
 
 interface TrackerOptions {
@@ -54,7 +54,7 @@ export class HandTrackerController {
   }
 
   async init() {
-    this.callbacks.onTrackingBackend("legacy");
+    this.callbacks.onTrackingBackend("legacy", "Main-thread tracker active.");
     const vision = await FilesetResolver.forVisionTasks(assetUrl("mediapipe/wasm/"));
 
     try {
