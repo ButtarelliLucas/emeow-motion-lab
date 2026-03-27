@@ -86,6 +86,9 @@ interface RingParticleBuffers {
   radialOffsets: Float32Array;
   phaseOffsets: Float32Array;
   orbitFractions: Float32Array;
+  laneOffsets: Float32Array;
+  tangentOffsets: Float32Array;
+  axisOffsets: Float32Array;
 }
 
 interface HandRingParticleSystem {
@@ -649,10 +652,12 @@ export class ParticleFieldRenderer {
     count,
     sizeRange,
     alphaRange,
+    shellCount,
   }: {
     count: number;
     sizeRange: [number, number];
     alphaRange: [number, number];
+    shellCount: number;
   }): HandRingParticleSystem {
     const positions = new Float32Array(count * 3);
     const previousPositions = new Float32Array(count * 2);
@@ -663,12 +668,20 @@ export class ParticleFieldRenderer {
     const radialOffsets = new Float32Array(count);
     const phaseOffsets = new Float32Array(count);
     const orbitFractions = new Float32Array(count);
+    const laneOffsets = new Float32Array(count);
+    const tangentOffsets = new Float32Array(count);
+    const axisOffsets = new Float32Array(count);
 
     for (let index = 0; index < count; index += 1) {
       angles[index] = (index / count) * Math.PI * 2 + THREE.MathUtils.randFloatSpread(0.06);
       radialOffsets[index] = THREE.MathUtils.randFloatSpread(1);
       phaseOffsets[index] = Math.random();
       orbitFractions[index] = index / count;
+      const shellIndex = index % shellCount;
+      const shellOffset = shellCount > 1 ? (shellIndex / (shellCount - 1)) * 2 - 1 : 0;
+      laneOffsets[index] = shellOffset + THREE.MathUtils.randFloatSpread(0.18);
+      tangentOffsets[index] = THREE.MathUtils.randFloatSpread(1);
+      axisOffsets[index] = THREE.MathUtils.randFloatSpread(1);
       sizes[index] = THREE.MathUtils.randFloat(sizeRange[0], sizeRange[1]) * this.overlayScale;
       alphas[index] = THREE.MathUtils.randFloat(alphaRange[0], alphaRange[1]);
       previousPositions[index * 2] = 0;
@@ -768,6 +781,9 @@ export class ParticleFieldRenderer {
         radialOffsets,
         phaseOffsets,
         orbitFractions,
+        laneOffsets,
+        tangentOffsets,
+        axisOffsets,
       },
     };
   }
@@ -787,13 +803,17 @@ export class ParticleFieldRenderer {
       time: number;
       flowAmount: number;
       zOffset: number;
+      bandThickness: number;
+      tangentSpread: number;
+      axisWarp: number;
       highlightPhase: number;
       highlightWidth: number;
       highlightStrength: number;
       leadBoost: number;
     },
   ) {
-    const { positions, previousPositions, trails, angles, radialOffsets, phaseOffsets } = system.buffers;
+    const { positions, previousPositions, trails, angles, radialOffsets, phaseOffsets, laneOffsets, tangentOffsets, axisOffsets } =
+      system.buffers;
     const geometry = system.points.geometry;
     const material = system.points.material;
     const cosRotation = Math.cos(options.rotation);
@@ -809,17 +829,36 @@ export class ParticleFieldRenderer {
 
     for (let index = 0; index < angles.length; index += 1) {
       const orbitalRate = options.time * options.driftSpeed * (1 + (phaseOffsets[index] - 0.5) * 0.08);
+      const lanePhase = phaseOffsets[index] * Math.PI * 2;
       const angle =
         angles[index] +
         orbitalRate +
-        Math.sin(options.time * (0.56 + phaseOffsets[index] * 0.68) + phaseOffsets[index] * Math.PI * 2) * options.flowAmount;
+        Math.sin(options.time * (0.56 + phaseOffsets[index] * 0.68) + lanePhase) * options.flowAmount;
       const radialJitter =
         radialOffsets[index] * options.jitterAmplitude +
-        Math.sin(options.time * (0.92 + phaseOffsets[index] * 0.84) + phaseOffsets[index] * Math.PI * 4) * options.jitterAmplitude * 0.18;
-      const radiusX = Math.max(0.001, options.radiusX + radialJitter);
-      const radiusY = Math.max(0.001, options.radiusY + radialJitter);
-      const localX = Math.cos(angle) * radiusX;
-      const localY = Math.sin(angle) * radiusY;
+        Math.sin(options.time * (0.92 + phaseOffsets[index] * 0.84) + phaseOffsets[index] * Math.PI * 4) *
+          options.jitterAmplitude *
+          0.18;
+      const laneWave = Math.sin(angle * (2.2 + axisOffsets[index] * 0.42) + lanePhase) * options.axisWarp;
+      const secondaryWave = Math.cos(angle * (3.6 + axisOffsets[index] * 0.34) - lanePhase) * options.axisWarp * 0.52;
+      const bandOffset = laneOffsets[index] * options.bandThickness + laneWave * options.bandThickness * 0.42;
+      const tangentOffset =
+        tangentOffsets[index] * options.tangentSpread * (0.56 + Math.abs(secondaryWave) * 0.48) +
+        secondaryWave * options.tangentSpread * 0.18;
+      const radiusX = Math.max(0.001, options.radiusX + radialJitter + bandOffset * 0.22 + secondaryWave * options.bandThickness * 0.1);
+      const radiusY = Math.max(0.001, options.radiusY + radialJitter - bandOffset * 0.14 + laneWave * options.bandThickness * 0.08);
+      let localX = Math.cos(angle) * radiusX;
+      let localY = Math.sin(angle) * radiusY;
+      const normal = normalize({
+        x: Math.cos(angle) / Math.max(radiusX, 0.0001),
+        y: Math.sin(angle) / Math.max(radiusY, 0.0001),
+      });
+      const tangent = normalize({
+        x: -Math.sin(angle) * radiusX,
+        y: Math.cos(angle) * radiusY,
+      });
+      localX += normal.x * bandOffset + tangent.x * tangentOffset;
+      localY += normal.y * bandOffset + tangent.y * tangentOffset;
       const x = options.center.x + localX * cosRotation - localY * sinRotation;
       const y = options.center.y + localX * sinRotation + localY * cosRotation;
       const positionIndex = index * 3;
@@ -1281,14 +1320,16 @@ export class ParticleFieldRenderer {
   private createHandsVisuals() {
     for (let handIndex = 0; handIndex < 2; handIndex += 1) {
       const ring = this.createRingParticleSystem({
-        count: 52,
+        count: 72,
         sizeRange: [7.4, 11.4],
         alphaRange: [0.78, 1],
+        shellCount: 5,
       });
       const detail = this.createRingParticleSystem({
-        count: 30,
+        count: 44,
         sizeRange: [4.8, 7.2],
         alphaRange: [0.58, 0.92],
+        shellCount: 4,
       });
       const orbitalMaterial = new THREE.SpriteMaterial({
         map: this.orbitalArcTexture,
@@ -2063,6 +2104,9 @@ export class ParticleFieldRenderer {
         time,
         flowAmount: 0.018 + contourFlow * 0.012,
         zOffset: 0.001,
+        bandThickness: Math.min(ringWidth, ringHeight) * (this.reducedMotion ? 0.028 : 0.046),
+        tangentSpread: Math.min(ringWidth, ringHeight) * (this.reducedMotion ? 0.014 : 0.024),
+        axisWarp: this.reducedMotion ? 0.16 : 0.28,
         highlightPhase,
         highlightWidth: this.reducedMotion ? 0.16 : 0.12,
         highlightStrength: this.reducedMotion ? 0.24 : 0.34,
@@ -2081,6 +2125,9 @@ export class ParticleFieldRenderer {
         time,
         flowAmount: 0.012 + glowBreath * 0.008,
         zOffset: 0.002,
+        bandThickness: Math.min(detailWidth, detailHeight) * (this.reducedMotion ? 0.016 : 0.028),
+        tangentSpread: Math.min(detailWidth, detailHeight) * (this.reducedMotion ? 0.008 : 0.016),
+        axisWarp: this.reducedMotion ? 0.08 : 0.16,
         highlightPhase: (highlightPhase + 0.42) % 1,
         highlightWidth: this.reducedMotion ? 0.24 : 0.2,
         highlightStrength: 0.14,
