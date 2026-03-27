@@ -29,7 +29,7 @@ export function OrientationHint({ copy }: OrientationHintProps) {
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-24 z-10 flex justify-center px-4">
-      <div className="rounded-full border border-white/10 bg-black/45 px-4 py-2 text-center text-xs uppercase tracking-[0.24em] text-foreground-muted backdrop-blur-xl">
+      <div className="panel-toast rounded-full px-4 py-2 text-center text-xs uppercase tracking-[0.24em] text-foreground-muted">
         {copy}
       </div>
     </div>

@@ -1,15 +1,20 @@
 import type { ExperienceConfig, ExperienceMetrics, QualityProfile, QualityTier } from "@/types/experience";
 
 export const EXPERIENCE_COPY = {
-  label: "Motion Lab",
-  headline: "Activa la camara para entrar en una escena cosmica eterea: tus manos deforman, atraen y expanden el flujo visual.",
-  permission: "Para disfrutar la experiencia hace falta permitir el uso de la camara.",
-  liveHint: "Usa tus manos dentro de la camara para deformar el flujo.",
-  wireframeHint: "Toca o haz click en cualquier parte para entrar o salir del modo sin camara.",
+  label: "Motion",
+  productName: "Motion",
+  brandSignature: "by e-Meow",
+  poweredByLabel: "powered by",
+  productSite: "motion.e-meow.com.ar",
+  parentSite: "e-meow.com.ar",
+  headline: "Activa la c\u00e1mara para entrar en una escena c\u00f3smica et\u00e9rea: tus manos deforman, atraen y expanden el flujo visual.",
+  permission: "Para disfrutar la experiencia hace falta permitir el uso de la c\u00e1mara.",
+  liveHint: "Us\u00e1 tus manos dentro de la c\u00e1mara para deformar el flujo.",
+  wireframeHint: "Toc\u00e1 o hac\u00e9 click en cualquier parte para entrar o salir del modo sin c\u00e1mara.",
   landscapeHint: "Se disfruta mejor en vertical, pero sigue funcionando en desktop y landscape.",
   help: [
-    "Cerrar la mano atrae particulas con un radio grande hacia la palma.",
-    "Abrir la mano dispersa el flujo, y cuanto mas se abre mas fuerte empuja.",
+    "Cerrar la mano atrae part\u00edculas con un radio grande hacia la palma.",
+    "Abrir la mano dispersa el flujo, y cuanto m\u00e1s se abre m\u00e1s fuerte empuja.",
     "Con dos manos la distancia entre palmas concentra o suelta el campo central.",
     "Girar una mano cambia la paleta; con dos manos el color sale del desnivel entre ambas.",
   ],

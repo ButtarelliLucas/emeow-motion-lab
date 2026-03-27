@@ -88,6 +88,17 @@ interface HandWireframeVisual {
   positions: Float32Array;
 }
 
+interface DisplayHandState {
+  initialized: boolean;
+  palm: Vec2;
+  ellipseAngle: number;
+  ellipseRadiusX: number;
+  ellipseRadiusY: number;
+  fingertips: Vec2[];
+  trail: Vec2[];
+  presence: number;
+}
+
 const HAND_CONNECTIONS: Array<[number, number]> = [
   [0, 1],
   [1, 2],
@@ -118,6 +129,31 @@ function toSceneVector(point: Vec2) {
 
 function dot(a: Vec2, b: Vec2) {
   return a.x * b.x + a.y * b.y;
+}
+
+function lerpPoint(start: Vec2, end: Vec2, alpha: number): Vec2 {
+  return {
+    x: lerp(start.x, end.x, alpha),
+    y: lerp(start.y, end.y, alpha),
+  };
+}
+
+function lerpWrappedAngle(start: number, end: number, alpha: number) {
+  let delta = end - start;
+
+  while (delta > Math.PI) {
+    delta -= Math.PI * 2;
+  }
+
+  while (delta < -Math.PI) {
+    delta += Math.PI * 2;
+  }
+
+  return start + delta * alpha;
+}
+
+function expSmoothing(delta: number, rate: number) {
+  return 1 - Math.exp(-delta * rate);
 }
 
 function perpendicular(vector: Vec2): Vec2 {
@@ -249,6 +285,10 @@ function createDefaultViewportMapping(canvas: HTMLCanvasElement) {
   });
 }
 
+function createDynamicAttribute(array: Float32Array, itemSize: number) {
+  return new THREE.BufferAttribute(array, itemSize).setUsage(THREE.DynamicDrawUsage);
+}
+
 export class ParticleFieldRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -290,6 +330,7 @@ export class ParticleFieldRenderer {
   private tipSprites: THREE.Sprite[][] = [];
   private trailLines: THREE.Line[] = [];
   private handWireframes: HandWireframeVisual[] = [];
+  private displayHands: DisplayHandState[] = [];
   private glowTexture = createGlowTexture(1, 0);
   private orbitalArcTexture = createOrbitalArcTexture();
   private readonly palettePrimary = new THREE.Color(LENSING_VIOLET);
@@ -528,11 +569,11 @@ export class ParticleFieldRenderer {
       previousPositions[index * 2 + 1] = 0;
     }
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
-    geometry.setAttribute("aAlpha", new THREE.BufferAttribute(alphas, 1));
-    geometry.setAttribute("aTrail", new THREE.BufferAttribute(trails, 2));
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", createDynamicAttribute(positions, 3));
+      geometry.setAttribute("aSize", createDynamicAttribute(sizes, 1));
+      geometry.setAttribute("aAlpha", createDynamicAttribute(alphas, 1));
+      geometry.setAttribute("aTrail", createDynamicAttribute(trails, 2));
 
     const material = new THREE.ShaderMaterial({
       transparent: true,
@@ -653,7 +694,7 @@ export class ParticleFieldRenderer {
       const deltaX = x - previousX;
       const deltaY = y - previousY;
       const deltaLength = Math.hypot(deltaX, deltaY);
-      const trailStrength = clamp(deltaLength / 0.014, 0, 1);
+      const trailStrength = clamp(deltaLength / 0.009, 0, 1);
       const trailDirection =
         deltaLength > 0.0001
           ? {
@@ -754,13 +795,13 @@ export class ParticleFieldRenderer {
       speedLights[index] = 0;
     }
 
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
-    geometry.setAttribute("aAlpha", new THREE.BufferAttribute(alphas, 1));
-    geometry.setAttribute("aDepth", new THREE.BufferAttribute(depthLayers, 1));
-    geometry.setAttribute("aTone", new THREE.BufferAttribute(toneMixes, 1));
-    geometry.setAttribute("aEnergy", new THREE.BufferAttribute(energies, 1));
-    geometry.setAttribute("aSpeedLight", new THREE.BufferAttribute(speedLights, 1));
+      geometry.setAttribute("position", createDynamicAttribute(positions, 3));
+      geometry.setAttribute("aSize", createDynamicAttribute(sizes, 1));
+      geometry.setAttribute("aAlpha", createDynamicAttribute(alphas, 1));
+      geometry.setAttribute("aDepth", new THREE.BufferAttribute(depthLayers, 1));
+      geometry.setAttribute("aTone", createDynamicAttribute(toneMixes, 1));
+      geometry.setAttribute("aEnergy", createDynamicAttribute(energies, 1));
+      geometry.setAttribute("aSpeedLight", createDynamicAttribute(speedLights, 1));
 
     const material = new THREE.ShaderMaterial({
       transparent: true,
@@ -893,13 +934,13 @@ export class ParticleFieldRenderer {
     for (let handIndex = 0; handIndex < 2; handIndex += 1) {
       const ring = this.createRingParticleSystem({
         count: 52,
-        sizeRange: [6.8, 10.6],
-        alphaRange: [0.72, 1],
+        sizeRange: [7.4, 11.4],
+        alphaRange: [0.78, 1],
       });
       const detail = this.createRingParticleSystem({
         count: 30,
-        sizeRange: [4.2, 6.8],
-        alphaRange: [0.52, 0.88],
+        sizeRange: [4.8, 7.2],
+        alphaRange: [0.58, 0.92],
       });
       const orbitalMaterial = new THREE.SpriteMaterial({
         map: this.orbitalArcTexture,
@@ -943,7 +984,7 @@ export class ParticleFieldRenderer {
       this.tipSprites.push(tipGroup);
 
       const trailGeometry = new THREE.BufferGeometry();
-      trailGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(24 * 3), 3));
+        trailGeometry.setAttribute("position", createDynamicAttribute(new Float32Array(24 * 3), 3));
       const trail = new THREE.Line(
         trailGeometry,
         new THREE.LineBasicMaterial({
@@ -960,7 +1001,7 @@ export class ParticleFieldRenderer {
 
       const wireframePositions = new Float32Array(HAND_CONNECTIONS.length * 2 * 3);
       const wireframeGeometry = new THREE.BufferGeometry();
-      wireframeGeometry.setAttribute("position", new THREE.BufferAttribute(wireframePositions, 3));
+        wireframeGeometry.setAttribute("position", createDynamicAttribute(wireframePositions, 3));
       const wireframeLine = new THREE.LineSegments(
         wireframeGeometry,
         new THREE.LineBasicMaterial({
@@ -978,6 +1019,16 @@ export class ParticleFieldRenderer {
         positions: wireframePositions,
       });
       this.scene.add(wireframeLine);
+      this.displayHands.push({
+        initialized: false,
+        palm: { x: 0, y: 0 },
+        ellipseAngle: 0,
+        ellipseRadiusX: 0.1,
+        ellipseRadiusY: 0.1,
+        fingertips: Array.from({ length: 5 }, () => ({ x: 0, y: 0 })),
+        trail: Array.from({ length: 24 }, () => ({ x: 0, y: 0 })),
+        presence: 0,
+      });
     }
   }
 
@@ -995,7 +1046,7 @@ export class ParticleFieldRenderer {
     this.onStats(this.frameMs);
 
     this.updateParticles(time * 0.001, delta);
-    this.updateHandsVisuals();
+    this.updateHandsVisuals(delta);
     this.updateImplosionVisual();
     this.renderer.render(this.scene, this.camera);
     this.adjustQuality();
@@ -1344,7 +1395,61 @@ export class ParticleFieldRenderer {
     });
   }
 
-  private updateHandsVisuals() {
+  private updateDisplayHandState(handIndex: number, hand: InteractionState["hands"][number], delta: number) {
+    const state = this.displayHands[handIndex];
+    const leadSeconds = clamp(0.012 + hand.speed * 0.008, 0.012, 0.03);
+    const predictedPalm = {
+      x: hand.palm.x + hand.velocity.x * leadSeconds,
+      y: hand.palm.y + hand.velocity.y * leadSeconds,
+    };
+    const geometryAlpha = expSmoothing(delta, hand.speed > 1.1 ? 22 : 14);
+    const radiusAlpha = expSmoothing(delta, 16);
+    const angleAlpha = expSmoothing(delta, hand.speed > 1.1 ? 20 : 13);
+    const tipAlpha = expSmoothing(delta, hand.speed > 1.1 ? 24 : 16);
+    const trailAlpha = expSmoothing(delta, hand.speed > 1.1 ? 26 : 18);
+    const presenceAlpha = expSmoothing(delta, 10);
+
+    if (!state.initialized) {
+      state.initialized = true;
+      state.palm = { ...predictedPalm };
+      state.ellipseAngle = hand.ellipseAngle;
+      state.ellipseRadiusX = hand.ellipseRadiusX;
+      state.ellipseRadiusY = hand.ellipseRadiusY;
+      state.presence = hand.presence;
+      state.fingertips = hand.fingertips.map((tip) => ({ ...tip }));
+      state.trail = state.trail.map((_, index) => {
+        const target = hand.trail[index] ?? hand.palm;
+        return { ...target };
+      });
+      return state;
+    }
+
+    state.palm = lerpPoint(state.palm, predictedPalm, geometryAlpha);
+    state.ellipseAngle = lerpWrappedAngle(state.ellipseAngle, hand.ellipseAngle, angleAlpha);
+    state.ellipseRadiusX = lerp(state.ellipseRadiusX, hand.ellipseRadiusX, radiusAlpha);
+    state.ellipseRadiusY = lerp(state.ellipseRadiusY, hand.ellipseRadiusY, radiusAlpha);
+    state.presence = lerp(state.presence, hand.presence, presenceAlpha);
+
+    for (let index = 0; index < state.fingertips.length; index += 1) {
+      const target = hand.fingertips[index] ?? hand.palm;
+      state.fingertips[index] = lerpPoint(state.fingertips[index], target, tipAlpha);
+    }
+
+    for (let index = 0; index < state.trail.length; index += 1) {
+      const target = hand.trail[index] ?? hand.palm;
+      state.trail[index] = lerpPoint(state.trail[index], target, trailAlpha);
+    }
+
+    return state;
+  }
+
+  private resetDisplayHandState(handIndex: number) {
+    const state = this.displayHands[handIndex];
+    state.initialized = false;
+    state.presence = 0;
+  }
+
+  private updateHandsVisuals(delta: number) {
     for (let handIndex = 0; handIndex < 2; handIndex += 1) {
       const hand = this.interaction.hands[handIndex];
       const ringSystem = this.palmRings[handIndex];
@@ -1357,6 +1462,7 @@ export class ParticleFieldRenderer {
       const trailAttribute = trail.geometry.attributes.position as THREE.BufferAttribute;
 
       if (!hand) {
+        this.resetDisplayHandState(handIndex);
         ringSystem.points.visible = false;
         detailSystem.points.visible = false;
         orbital.visible = false;
@@ -1369,17 +1475,23 @@ export class ParticleFieldRenderer {
         continue;
       }
 
-      const palmPoint = toSceneVector(hand.palm);
+      const displayHand = this.updateDisplayHandState(handIndex, hand, delta);
+      const palmPoint = toSceneVector(displayHand.palm);
       const time = this.renderTime;
       const motionDamp = this.interaction.dualActive ? 0.58 : 1;
       const pulse = 1 + Math.sin(time * 1.8 + handIndex * 0.7) * 0.024;
       const ripple = hand.openImpulseAmount * 0.22;
       const contraction = hand.attractionAmount * 0.06;
-      const ambientOuterSpin = time * (0.18 + handIndex * 0.02) * motionDamp;
-      const ambientDetailSpin = time * (0.28 + handIndex * 0.03) * motionDamp;
+      const overlayOrbitBoost = this.reducedMotion ? 0.82 : 1.62;
+      const ambientOuterSpin = time * (0.3 + handIndex * 0.04) * motionDamp * overlayOrbitBoost;
+      const ambientDetailSpin = time * (0.48 + handIndex * 0.05) * motionDamp * overlayOrbitBoost;
       const orbitalSpin =
-        time * (0.46 + hand.openImpulseAmount * 0.8 + hand.openAmount * 0.12 + hand.attractionAmount * 0.08) * motionDamp;
-      const contourFlow = 0.5 + Math.sin(time * (2.1 + handIndex * 0.18) + hand.palm.x * 2.8 + hand.palm.y) * 0.5;
+        time *
+        (0.72 + hand.openImpulseAmount * 1.04 + hand.openAmount * 0.18 + hand.attractionAmount * 0.12) *
+        motionDamp *
+        overlayOrbitBoost;
+      const contourFlow =
+        0.5 + Math.sin(time * (2.1 + handIndex * 0.18) + displayHand.palm.x * 2.8 + displayHand.palm.y) * 0.5;
       const glowBreath = 0.5 + Math.sin(time * 1.4 + handIndex * 0.8) * 0.5;
       const orbitalMaterial = orbital.material as THREE.SpriteMaterial;
       const coreMaterial = core.material as THREE.SpriteMaterial;
@@ -1399,32 +1511,13 @@ export class ParticleFieldRenderer {
       const coreColor = overlayPalette.coreColor;
       const trailColor = overlayPalette.trailColor;
 
-      if (this.wireframeMode) {
-        HAND_CONNECTIONS.forEach(([from, to], connectionIndex) => {
-          const start = hand.landmarks[from] ?? hand.palm;
-          const end = hand.landmarks[to] ?? hand.palm;
-          const positionIndex = connectionIndex * 6;
-          wireframe.positions[positionIndex] = start.x;
-          wireframe.positions[positionIndex + 1] = start.y;
-          wireframe.positions[positionIndex + 2] = 0.01;
-          wireframe.positions[positionIndex + 3] = end.x;
-          wireframe.positions[positionIndex + 4] = end.y;
-          wireframe.positions[positionIndex + 5] = 0.01;
-        });
-        const wireframeMaterial = wireframe.line.material;
-        wireframeMaterial.color.copy(overlayPalette.secondaryColor.clone().lerp(overlayPalette.biasColor, 0.42));
-        wireframeMaterial.opacity = hand.presence * (0.1 + gestureEnergy * 0.06 + glowBreath * 0.02);
-        wireframe.line.geometry.attributes.position.needsUpdate = true;
-        wireframe.line.visible = hand.presence > 0.01;
-      } else {
-        wireframe.line.visible = false;
-      }
+      wireframe.line.visible = false;
       const ringWidth =
-        Math.max(hand.ellipseRadiusX * 2.16 * (1 + hand.attractionAmount * 0.05 + hand.openAmount * 0.02), 0.16) *
+        Math.max(displayHand.ellipseRadiusX * 2.24 * (1 + hand.attractionAmount * 0.05 + hand.openAmount * 0.02), 0.16) *
         pulse *
         (1 + ripple * 0.35 - contraction);
       const ringHeight =
-        Math.max(hand.ellipseRadiusY * 2.16 * (1 + hand.attractionAmount * 0.04 + hand.openAmount * 0.04), 0.2) *
+        Math.max(displayHand.ellipseRadiusY * 2.24 * (1 + hand.attractionAmount * 0.04 + hand.openAmount * 0.04), 0.2) *
         pulse *
         (1 + ripple * 0.28 - contraction * 0.82);
       const detailWidth = ringWidth * (0.94 + glowBreath * 0.02 + hand.attractionAmount * 0.02);
@@ -1434,13 +1527,13 @@ export class ParticleFieldRenderer {
       const coreWidth = ringWidth * (0.36 + hand.attractionAmount * 0.06 + hand.openImpulseAmount * 0.05 + glowBreath * 0.015);
       const coreHeight = ringHeight * (0.36 + hand.attractionAmount * 0.04 + hand.openImpulseAmount * 0.05 + glowBreath * 0.015);
       const outerOpacity =
-        hand.presence *
-        (this.interaction.dualActive ? 0.74 : 0.66 + hand.attractionAmount * 0.22 + hand.openImpulseAmount * 0.16) *
-        (0.92 + contourFlow * 0.12);
+        displayHand.presence *
+        (this.interaction.dualActive ? 0.78 : 0.7 + hand.attractionAmount * 0.22 + hand.openImpulseAmount * 0.16) *
+        (0.94 + contourFlow * 0.14);
       const detailOpacity =
-        hand.presence *
-        (this.interaction.dualActive ? 0.46 : 0.4 + hand.attractionAmount * 0.12 + hand.openImpulseAmount * 0.1) *
-        (0.84 + contourFlow * 0.18);
+        displayHand.presence *
+        (this.interaction.dualActive ? 0.52 : 0.46 + hand.attractionAmount * 0.12 + hand.openImpulseAmount * 0.1) *
+        (0.86 + contourFlow * 0.2);
 
       orbital.visible = true;
       core.visible = true;
@@ -1449,45 +1542,48 @@ export class ParticleFieldRenderer {
       orbital.scale.set(orbitalWidth, orbitalHeight, 1);
       core.scale.set(coreWidth, coreHeight, 1);
       this.updateRingParticleSystem(ringSystem, {
-        center: hand.palm,
-        rotation: hand.ellipseAngle + ambientOuterSpin * (0.38 - hand.attractionAmount * 0.18),
+        center: displayHand.palm,
+        rotation: displayHand.ellipseAngle + ambientOuterSpin * (0.38 - hand.attractionAmount * 0.18),
         radiusX: ringWidth * 0.5,
         radiusY: ringHeight * 0.5,
         color: outerColor,
         haloColor: overlayPalette.accentCool,
         opacity: outerOpacity,
-        jitterAmplitude: Math.min(ringWidth, ringHeight) * (0.006 + hand.openImpulseAmount * 0.002),
-        driftSpeed: 0.62 + hand.openImpulseAmount * 0.16 + hand.attractionAmount * 0.08,
+        jitterAmplitude: Math.min(ringWidth, ringHeight) * (0.004 + hand.openImpulseAmount * 0.0015),
+        driftSpeed:
+          (0.98 + hand.openImpulseAmount * 0.34 + hand.attractionAmount * 0.12 + hand.openAmount * 0.08) *
+          overlayOrbitBoost,
         time,
-        flowAmount: 0.014 + contourFlow * 0.008,
+        flowAmount: 0.018 + contourFlow * 0.012,
         zOffset: 0.001,
       });
       this.updateRingParticleSystem(detailSystem, {
-        center: hand.palm,
-        rotation: hand.ellipseAngle - ambientDetailSpin * (0.42 - hand.attractionAmount * 0.12),
+        center: displayHand.palm,
+        rotation: displayHand.ellipseAngle - ambientDetailSpin * (0.42 - hand.attractionAmount * 0.12),
         radiusX: detailWidth * 0.5,
         radiusY: detailHeight * 0.5,
         color: detailColor,
         haloColor: outerColor,
         opacity: detailOpacity,
-        jitterAmplitude: Math.min(detailWidth, detailHeight) * 0.003,
-        driftSpeed: -0.46 - contourFlow * 0.08,
+        jitterAmplitude: Math.min(detailWidth, detailHeight) * 0.002,
+        driftSpeed: (-0.82 - contourFlow * 0.16 - hand.openImpulseAmount * 0.08) * overlayOrbitBoost,
         time,
-        flowAmount: 0.008 + glowBreath * 0.006,
+        flowAmount: 0.012 + glowBreath * 0.008,
         zOffset: 0.002,
       });
-      orbitalMaterial.rotation = hand.ellipseAngle + orbitalSpin;
-      coreMaterial.rotation = hand.ellipseAngle - ambientOuterSpin * 0.08;
+      orbitalMaterial.rotation = displayHand.ellipseAngle + orbitalSpin;
+      coreMaterial.rotation = displayHand.ellipseAngle - ambientOuterSpin * 0.08;
       orbitalMaterial.color.copy(orbitalColor);
       coreMaterial.color.copy(coreColor);
       orbitalMaterial.opacity =
-        hand.presence *
+        displayHand.presence *
         (this.interaction.dualActive ? 0.26 : 0.22 + hand.openImpulseAmount * 0.2 + hand.openAmount * 0.04 + hand.attractionAmount * 0.06) *
         (0.76 + contourFlow * 0.24);
-      coreMaterial.opacity = hand.presence * (0.14 + hand.attractionAmount * 0.14 + hand.openImpulseAmount * 0.08) * (0.82 + glowBreath * 0.18);
+      coreMaterial.opacity =
+        displayHand.presence * (0.14 + hand.attractionAmount * 0.14 + hand.openImpulseAmount * 0.08) * (0.82 + glowBreath * 0.18);
 
       tips.forEach((tip, tipIndex) => {
-        const tipPoint = toSceneVector(hand.fingertips[tipIndex]);
+        const tipPoint = toSceneVector(displayHand.fingertips[tipIndex] ?? displayHand.palm);
         tip.visible = true;
         tip.position.copy(tipPoint);
         const tipScale =
@@ -1499,24 +1595,25 @@ export class ParticleFieldRenderer {
         const tipMaterial = tip.material as THREE.SpriteMaterial;
         tipMaterial.color.copy(tipIndex % 2 === 0 ? outerColor : detailColor);
         tipMaterial.opacity =
-          hand.presence * (0.22 + hand.openAmount * 0.28 + hand.attractionAmount * 0.08 + hand.openImpulseAmount * 0.1);
+          displayHand.presence *
+          (0.22 + hand.openAmount * 0.28 + hand.attractionAmount * 0.08 + hand.openImpulseAmount * 0.1);
       });
 
       const positions = trailAttribute.array as Float32Array;
-      hand.trail.forEach((point, trailIndex) => {
+      displayHand.trail.forEach((point, trailIndex) => {
         positions[trailIndex * 3] = point.x;
         positions[trailIndex * 3 + 1] = point.y;
         positions[trailIndex * 3 + 2] = 0;
       });
-      for (let trailIndex = hand.trail.length; trailIndex < positions.length / 3; trailIndex += 1) {
-        positions[trailIndex * 3] = hand.palm.x;
-        positions[trailIndex * 3 + 1] = hand.palm.y;
+      for (let trailIndex = displayHand.trail.length; trailIndex < positions.length / 3; trailIndex += 1) {
+        positions[trailIndex * 3] = displayHand.palm.x;
+        positions[trailIndex * 3 + 1] = displayHand.palm.y;
         positions[trailIndex * 3 + 2] = 0;
       }
       trailAttribute.needsUpdate = true;
       const trailMaterial = trail.material as THREE.LineBasicMaterial;
       trailMaterial.color.copy(trailColor);
-      trailMaterial.opacity = hand.presence * (this.interaction.dualActive ? 0.52 : 0.68);
+      trailMaterial.opacity = displayHand.presence * (this.interaction.dualActive ? 0.52 : 0.68);
     }
   }
 
