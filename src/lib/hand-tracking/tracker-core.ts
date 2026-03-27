@@ -7,7 +7,7 @@ import { EXPERIENCE_CONFIG, getQualityProfile } from "@/config/experience";
 import { computeDualDepthDelta, computeProjectedScale } from "@/lib/hand-tracking/depth";
 import { measureHand } from "@/lib/hand-tracking/gestures";
 import { nextGestureImpulse } from "@/lib/hand-tracking/impulses";
-import { clamp, distance, lerp, lerpVec2, length } from "@/lib/math";
+import { add, clamp, distance, lerp, lerpVec2, length, scale } from "@/lib/math";
 import { createViewportMapping, mapNormalizedPointToScene } from "@/lib/viewport-mapping";
 import type {
   GestureState,
@@ -24,9 +24,44 @@ interface InternalHandState extends HandVisualState {
   rawFingertips: Vec2[];
   rawPinchPoint: Vec2;
   rawTrail: Vec2[];
+  rawEllipseAxisX: Vec2;
+  rawEllipseAxisY: Vec2;
+  rawEllipseRadiusX: number;
+  rawEllipseRadiusY: number;
   rawOpenAmount: number;
   rawClosure: number;
   lastSeenAt: number;
+}
+
+function mapEllipseToSceneMetrics(
+  rawPalm: Vec2,
+  rawEllipseAxisX: Vec2,
+  rawEllipseAxisY: Vec2,
+  rawEllipseRadiusX: number,
+  rawEllipseRadiusY: number,
+  mapping: ViewportMapping,
+) {
+  const palm = mapNormalizedPointToScene(rawPalm, mapping);
+  const ellipseXAnchor = mapNormalizedPointToScene(
+    add(rawPalm, scale(rawEllipseAxisX, rawEllipseRadiusX)),
+    mapping,
+  );
+  const ellipseYAnchor = mapNormalizedPointToScene(
+    add(rawPalm, scale(rawEllipseAxisY, rawEllipseRadiusY)),
+    mapping,
+  );
+
+  const ellipseRadiusX = Math.max(0.06, distance(ellipseXAnchor, palm));
+  const ellipseRadiusY = Math.max(0.08, distance(ellipseYAnchor, palm));
+  const ellipseAngle = Math.atan2(ellipseXAnchor.y - palm.y, ellipseXAnchor.x - palm.x);
+
+  return {
+    palm,
+    ellipseRadiusX,
+    ellipseRadiusY,
+    ellipseAngle,
+    projectedScale: computeProjectedScale(ellipseRadiusX, ellipseRadiusY),
+  };
 }
 
 function detectSweepGesture(speed: number, currentGesture: Exclude<GestureState, "dualField">) {
@@ -106,20 +141,29 @@ export class TrackingStateEngine {
   }
 
   setViewportMapping(mapping: ViewportMapping) {
-    const previousMapping = this.viewportMapping;
-    const horizontalScale = mapping.sceneHalfWidth / Math.max(previousMapping.sceneHalfWidth, 0.0001);
     this.viewportMapping = mapping;
 
     this.hands.forEach((hand, key) => {
+      const ellipseMetrics = mapEllipseToSceneMetrics(
+        hand.rawPalm,
+        hand.rawEllipseAxisX,
+        hand.rawEllipseAxisY,
+        hand.rawEllipseRadiusX,
+        hand.rawEllipseRadiusY,
+        mapping,
+      );
+
       this.hands.set(key, {
         ...hand,
-        palm: mapNormalizedPointToScene(hand.rawPalm, mapping),
+        palm: ellipseMetrics.palm,
         landmarks: hand.rawLandmarks.map((point) => mapNormalizedPointToScene(point, mapping)),
         fingertips: hand.rawFingertips.map((tip) => mapNormalizedPointToScene(tip, mapping)),
         pinchPoint: mapNormalizedPointToScene(hand.rawPinchPoint, mapping),
         trail: hand.rawTrail.map((point) => mapNormalizedPointToScene(point, mapping)),
-        ellipseRadiusX: hand.ellipseRadiusX * horizontalScale,
-        ellipseRadiusY: hand.ellipseRadiusY,
+        ellipseAngle: ellipseMetrics.ellipseAngle,
+        ellipseRadiusX: ellipseMetrics.ellipseRadiusX,
+        ellipseRadiusY: ellipseMetrics.ellipseRadiusY,
+        projectedScale: ellipseMetrics.projectedScale,
       });
     });
   }
@@ -210,30 +254,24 @@ export class TrackingStateEngine {
       const rawPinchPoint = previous
         ? lerpVec2(previous.rawPinchPoint, measured.pinchPoint, smoothingAlpha(moving, 0.4, 0.64))
         : measured.pinchPoint;
-      const palm = mapNormalizedPointToScene(rawPalm, this.viewportMapping);
       const sceneLandmarks = this.detailedLandmarksEnabled
         ? rawLandmarks.map((point) => mapNormalizedPointToScene(point, this.viewportMapping))
         : [];
       const fingertips = rawFingertips.map((tip) => mapNormalizedPointToScene(tip, this.viewportMapping));
       const pinchPoint = mapNormalizedPointToScene(rawPinchPoint, this.viewportMapping);
-      const ellipseXAnchor = mapNormalizedPointToScene(
-        {
-          x: rawPalm.x + measured.ellipseAxisX.x * measured.ellipseRadiusX,
-          y: rawPalm.y + measured.ellipseAxisX.y * measured.ellipseRadiusX,
-        },
+      const ellipseMetrics = mapEllipseToSceneMetrics(
+        rawPalm,
+        measured.ellipseAxisX,
+        measured.ellipseAxisY,
+        measured.ellipseRadiusX,
+        measured.ellipseRadiusY,
         this.viewportMapping,
       );
-      const ellipseYAnchor = mapNormalizedPointToScene(
-        {
-          x: rawPalm.x + measured.ellipseAxisY.x * measured.ellipseRadiusY,
-          y: rawPalm.y + measured.ellipseAxisY.y * measured.ellipseRadiusY,
-        },
-        this.viewportMapping,
-      );
-      const ellipseRadiusXTarget = Math.max(0.06, distance(ellipseXAnchor, palm));
-      const ellipseRadiusYTarget = Math.max(0.08, distance(ellipseYAnchor, palm));
-      const ellipseAngleTarget = Math.atan2(ellipseXAnchor.y - palm.y, ellipseXAnchor.x - palm.x);
-      const projectedScaleTarget = computeProjectedScale(ellipseRadiusXTarget, ellipseRadiusYTarget);
+      const palm = ellipseMetrics.palm;
+      const ellipseRadiusXTarget = ellipseMetrics.ellipseRadiusX;
+      const ellipseRadiusYTarget = ellipseMetrics.ellipseRadiusY;
+      const ellipseAngleTarget = ellipseMetrics.ellipseAngle;
+      const projectedScaleTarget = ellipseMetrics.projectedScale;
       const velocity = previous
         ? {
             x: (palm.x - previous.palm.x) / elapsedSeconds,
@@ -300,6 +338,10 @@ export class TrackingStateEngine {
         rawFingertips,
         rawPinchPoint,
         rawTrail,
+        rawEllipseAxisX: measured.ellipseAxisX,
+        rawEllipseAxisY: measured.ellipseAxisY,
+        rawEllipseRadiusX: measured.ellipseRadiusX,
+        rawEllipseRadiusY: measured.ellipseRadiusY,
         rawOpenAmount: measured.openAmount,
         rawClosure: measured.closure,
         lastSeenAt: now,

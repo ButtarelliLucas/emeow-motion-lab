@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createEmptyInteractionState, TrackingStateEngine } from "@/lib/hand-tracking/tracker-core";
 import type { LandmarkLike } from "@/lib/hand-tracking/gestures";
+import { createViewportMapping } from "@/lib/viewport-mapping";
 
 function createBaseLandmarks(): LandmarkLike[] {
   return Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
@@ -70,5 +71,54 @@ describe("TrackingStateEngine", () => {
     );
 
     expect(interaction.hands[0]?.landmarks).toHaveLength(21);
+  });
+
+  it("remaps both ellipse radii when the viewport mapping changes", () => {
+    const engine = new TrackingStateEngine({
+      qualityTier: "medium",
+      reducedMotion: false,
+    });
+
+    engine.setViewportMapping(
+      createViewportMapping({
+        viewportWidth: 1000,
+        viewportHeight: 1000,
+        videoWidth: 1000,
+        videoHeight: 1000,
+      }),
+    );
+
+    const first = engine.processResult(
+      {
+        landmarks: [createOpenHand()],
+        handedness: [[{ categoryName: "Left", score: 0.92, index: 0, displayName: "Left" }]],
+      } as never,
+      1000,
+    );
+
+    const firstHand = first.hands[0];
+    expect(firstHand).toBeDefined();
+
+    engine.setViewportMapping(
+      createViewportMapping({
+        viewportWidth: 1000,
+        viewportHeight: 500,
+        videoWidth: 1000,
+        videoHeight: 1000,
+      }),
+    );
+
+    const remapped = engine.processResult(
+      {
+        landmarks: [],
+        handedness: [],
+      } as never,
+      1100,
+    );
+
+    const remappedHand = remapped.hands[0];
+    expect(remappedHand).toBeDefined();
+    expect(remappedHand?.ellipseRadiusX).not.toBeCloseTo(firstHand!.ellipseRadiusX, 5);
+    expect(remappedHand?.ellipseRadiusY).not.toBeCloseTo(firstHand!.ellipseRadiusY, 5);
   });
 });

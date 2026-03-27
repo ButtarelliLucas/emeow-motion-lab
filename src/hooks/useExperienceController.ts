@@ -16,9 +16,12 @@ import { createViewportMapping } from "@/lib/viewport-mapping";
 import type {
   ExperiencePhase,
   GestureState,
+  HandVisualState,
+  InteractionState,
   OverlayStatus,
   QualityTier,
   TrackingBackend,
+  Vec2,
   ViewportMapping,
 } from "@/types/experience";
 
@@ -67,12 +70,12 @@ function waitForVideoReady(video: HTMLVideoElement, timeoutMs: number) {
 
     const onError = () => {
       cleanup();
-      reject(new Error("No pudimos leer el stream de la camara."));
+      reject(new Error("No pudimos leer el stream de la c\u00e1mara."));
     };
 
     const timeoutId = window.setTimeout(() => {
       cleanup();
-      reject(new Error("La camara tardo demasiado en responder."));
+      reject(new Error("La c\u00e1mara tard\u00f3 demasiado en responder."));
     }, timeoutMs);
 
     video.addEventListener("loadedmetadata", onReady, { once: true });
@@ -119,6 +122,121 @@ function isChromeControlTarget(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest("[data-live-chrome-control='true']"));
 }
 
+function createEmptyInteraction(): InteractionState {
+  return {
+    hands: [],
+    handsDetected: false,
+    primaryGesture: "idle",
+    dualActive: false,
+    paletteBias: 0,
+    dualDistance: 0,
+    dualCloseness: 0,
+    dualDepthDelta: 0,
+    dualDepthAmount: 0,
+    lastUpdated: performance.now(),
+  };
+}
+
+function createDebugTrail(palm: Vec2, radius: number) {
+  return Array.from({ length: 24 }, (_, index) => {
+    const progress = index / 23;
+    return {
+      x: palm.x - radius * (0.78 - progress * 0.78),
+      y: palm.y - radius * 0.12 + radius * progress * 0.08,
+    };
+  });
+}
+
+function createDebugLandmarks(palm: Vec2, radius: number) {
+  const points: Vec2[] = [
+    { x: palm.x, y: palm.y - radius * 0.15 },
+    { x: palm.x - radius * 0.16, y: palm.y - radius * 0.02 },
+    { x: palm.x - radius * 0.24, y: palm.y + radius * 0.14 },
+    { x: palm.x - radius * 0.28, y: palm.y + radius * 0.28 },
+    { x: palm.x - radius * 0.31, y: palm.y + radius * 0.43 },
+    { x: palm.x - radius * 0.09, y: palm.y + radius * 0.06 },
+    { x: palm.x - radius * 0.1, y: palm.y + radius * 0.26 },
+    { x: palm.x - radius * 0.1, y: palm.y + radius * 0.46 },
+    { x: palm.x - radius * 0.1, y: palm.y + radius * 0.67 },
+    { x: palm.x, y: palm.y + radius * 0.09 },
+    { x: palm.x, y: palm.y + radius * 0.32 },
+    { x: palm.x, y: palm.y + radius * 0.57 },
+    { x: palm.x, y: palm.y + radius * 0.83 },
+    { x: palm.x + radius * 0.1, y: palm.y + radius * 0.07 },
+    { x: palm.x + radius * 0.12, y: palm.y + radius * 0.29 },
+    { x: palm.x + radius * 0.14, y: palm.y + radius * 0.49 },
+    { x: palm.x + radius * 0.16, y: palm.y + radius * 0.68 },
+    { x: palm.x + radius * 0.2, y: palm.y + radius * 0.02 },
+    { x: palm.x + radius * 0.26, y: palm.y + radius * 0.17 },
+    { x: palm.x + radius * 0.3, y: palm.y + radius * 0.3 },
+    { x: palm.x + radius * 0.34, y: palm.y + radius * 0.43 },
+  ];
+
+  return points;
+}
+
+function createDebugHand(mapping: ViewportMapping | null): HandVisualState {
+  const sceneHalfWidth = mapping?.sceneHalfWidth ?? 1;
+  const viewportWidth = mapping?.viewportWidth ?? (window.innerWidth || 1);
+  const viewportHeight = mapping?.viewportHeight ?? (window.innerHeight || 1);
+  const sceneHalfHeight = sceneHalfWidth * (viewportHeight / Math.max(viewportWidth, 1));
+  const palm = { x: 0, y: 0 };
+  const radius = Math.max(Math.min(sceneHalfWidth * 0.22, sceneHalfHeight * 0.32), 0.14);
+  const fingertips = [
+    { x: palm.x - radius * 0.31, y: palm.y + radius * 0.43 },
+    { x: palm.x - radius * 0.1, y: palm.y + radius * 0.67 },
+    { x: palm.x, y: palm.y + radius * 0.83 },
+    { x: palm.x + radius * 0.16, y: palm.y + radius * 0.68 },
+    { x: palm.x + radius * 0.34, y: palm.y + radius * 0.43 },
+  ];
+
+  return {
+    id: "debug-hand",
+    palm,
+    landmarks: createDebugLandmarks(palm, radius),
+    fingertips,
+    pinchPoint: { x: palm.x, y: palm.y + radius * 0.34 },
+    radius,
+    pinchStrength: 0.08,
+    openness: 0.9,
+    closure: 0.14,
+    openAmount: 0.88,
+    rollAngle: 0,
+    sideTilt: 0,
+    paletteBias: 0.08,
+    ellipseAngle: 0.04,
+    ellipseRadiusX: radius * 1.16,
+    ellipseRadiusY: radius * 1.48,
+    projectedScale: 1,
+    attractionAmount: 0.06,
+    repulsionAmount: 0.04,
+    openImpulseAmount: 0.04,
+    closingImpulseAmount: 0,
+    speed: 0.2,
+    gesture: "openPalm",
+    trail: createDebugTrail(palm, radius),
+    velocity: { x: 0, y: 0 },
+    confidence: 1,
+    presence: 1,
+  };
+}
+
+function createDebugInteraction(mapping: ViewportMapping | null): InteractionState {
+  const hand = createDebugHand(mapping);
+  return {
+    hands: [hand],
+    handsDetected: true,
+    primaryGesture: "openPalm",
+    dualActive: false,
+    paletteBias: hand.paletteBias,
+    dualDistance: 0,
+    dualCloseness: 0,
+    dualDepthDelta: 0,
+    dualDepthAmount: 0,
+    lastUpdated: performance.now(),
+  };
+}
+
 export function useExperienceController() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -130,11 +248,14 @@ export function useExperienceController() {
   const activityTimeoutRef = useRef(0);
   const centerLogoTimeoutRef = useRef(0);
   const fullscreenTimeoutRef = useRef(0);
+  const calibratingTimeoutRef = useRef(0);
   const screenToggleHintShowTimeoutRef = useRef(0);
   const screenToggleHintTimeoutRef = useRef(0);
+  const lastInteractionRef = useRef<InteractionState>(createEmptyInteraction());
   const screenToggleHintShownRef = useRef(false);
   const lastHandDetectedAtRef = useRef<number | null>(null);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const debugHandPresentRef = useRef(false);
   const phaseRef = useRef<ExperiencePhase>("intro");
   const handPresenceLatchedRef = useRef(false);
   const reducedMotion =
@@ -148,6 +269,7 @@ export function useExperienceController() {
   const [fullscreenReady, setFullscreenReady] = useState(false);
   const [screenToggleHintVisible, setScreenToggleHintVisible] = useState(false);
   const [wireframeMode, setWireframeMode] = useState(false);
+  const [debugHandPresent, setDebugHandPresent] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(() =>
     typeof document !== "undefined" ? Boolean(document.fullscreenElement) : false,
   );
@@ -349,12 +471,33 @@ export function useExperienceController() {
   }, [wireframeMode]);
 
   useEffect(() => {
+    if (!isLiveChromePhase(phaseRef.current)) {
+      return;
+    }
+
+    if (debugHandPresent) {
+      const interaction = createDebugInteraction(getViewportMapping(videoRef.current, canvasRef.current));
+      rendererRef.current?.setInteraction(interaction);
+      setInteractionState(interaction.hands.length, true, interaction.primaryGesture);
+      return;
+    }
+
+    const interaction = lastInteractionRef.current;
+    rendererRef.current?.setInteraction(interaction);
+    setInteractionState(interaction.hands.length, interaction.handsDetected, interaction.primaryGesture);
+  }, [debugHandPresent]);
+
+  useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
 
   useEffect(() => {
     handPresenceLatchedRef.current = handPresenceLatched;
   }, [handPresenceLatched]);
+
+  useEffect(() => {
+    debugHandPresentRef.current = debugHandPresent;
+  }, [debugHandPresent]);
 
   useEffect(() => {
     if (!fullscreenSupported) {
@@ -418,7 +561,9 @@ export function useExperienceController() {
       return;
     }
 
-    if (overlayStatus.handsDetected) {
+    const effectiveHandsDetected = overlayStatus.handsDetected || debugHandPresent;
+
+    if (effectiveHandsDetected) {
       lastHandDetectedAtRef.current = performance.now();
       clearTimeoutRef(handLatchTimeoutRef);
 
@@ -438,7 +583,7 @@ export function useExperienceController() {
     }
 
     handLatchTimeoutRef.current = window.setTimeout(() => {
-      if (!overlayStatus.handsDetected) {
+      if (!(overlayStatus.handsDetected || debugHandPresent)) {
         handPresenceLatchedRef.current = false;
         setHandPresenceLatched(false);
         showChrome();
@@ -448,7 +593,7 @@ export function useExperienceController() {
     return () => {
       clearTimeoutRef(handLatchTimeoutRef);
     };
-  }, [clearTimeoutRef, hideChrome, overlayStatus.handsDetected, phase, showChrome, showScreenToggleHint]);
+  }, [clearTimeoutRef, debugHandPresent, hideChrome, overlayStatus.handsDetected, phase, showChrome, showScreenToggleHint]);
 
   useEffect(() => {
     if (!isLiveChromePhase(phase) || !handPresenceLatched) {
@@ -498,6 +643,7 @@ export function useExperienceController() {
         clearTimeoutRef(activityTimeoutRef);
         clearTimeoutRef(centerLogoTimeoutRef);
         clearTimeoutRef(fullscreenTimeoutRef);
+        clearTimeoutRef(calibratingTimeoutRef);
         clearTimeoutRef(screenToggleHintShowTimeoutRef);
         clearTimeoutRef(screenToggleHintTimeoutRef);
         trackerRef.current?.destroy();
@@ -521,6 +667,7 @@ export function useExperienceController() {
     clearTimeoutRef(activityTimeoutRef);
     clearTimeoutRef(centerLogoTimeoutRef);
     clearTimeoutRef(fullscreenTimeoutRef);
+    clearTimeoutRef(calibratingTimeoutRef);
     clearTimeoutRef(screenToggleHintShowTimeoutRef);
     clearTimeoutRef(screenToggleHintTimeoutRef);
     lastHandDetectedAtRef.current = null;
@@ -532,18 +679,9 @@ export function useExperienceController() {
     setWireframeMode(false);
     rendererRef.current?.setWireframeMode(false);
 
-    rendererRef.current?.setInteraction({
-      hands: [],
-      handsDetected: false,
-      primaryGesture: "idle",
-      dualActive: false,
-      paletteBias: 0,
-      dualDistance: 0,
-      dualCloseness: 0,
-      dualDepthDelta: 0,
-      dualDepthAmount: 0,
-      lastUpdated: performance.now(),
-    });
+    const emptyInteraction = createEmptyInteraction();
+    lastInteractionRef.current = emptyInteraction;
+    rendererRef.current?.setInteraction(emptyInteraction);
   };
 
   const startExperience = async () => {
@@ -555,7 +693,7 @@ export function useExperienceController() {
       setPhase("unsupported");
       setOverlayStatus((current) => ({
         ...current,
-        errorMessage: "La camara web necesita HTTPS y un navegador moderno con getUserMedia habilitado.",
+        errorMessage: "La c\u00e1mara web necesita HTTPS y un navegador moderno con getUserMedia habilitado.",
       }));
       return;
     }
@@ -577,7 +715,7 @@ export function useExperienceController() {
       const stream = await withTimeout(
         navigator.mediaDevices.getUserMedia(EXPERIENCE_CONFIG.cameraConstraints),
         12000,
-        "La camara no respondio a tiempo.",
+        "La c\u00e1mara no respondi\u00f3 a tiempo.",
       );
 
       streamRef.current = stream;
@@ -598,7 +736,7 @@ export function useExperienceController() {
       await withTimeout(
         Promise.resolve(videoElement.play()),
         8000,
-        "No pudimos reproducir la camara en este dispositivo.",
+        "No pudimos reproducir la c\u00e1mara en este dispositivo.",
       );
       setPhase("calibrating");
 
@@ -612,8 +750,16 @@ export function useExperienceController() {
         reducedMotion,
         callbacks: {
           onInteraction: (interaction) => {
-            rendererRef.current?.setInteraction(interaction);
-            setInteractionState(interaction.hands.length, interaction.handsDetected, interaction.primaryGesture);
+            lastInteractionRef.current = interaction;
+            const resolvedInteraction = debugHandPresentRef.current
+              ? createDebugInteraction(getViewportMapping(videoElement, canvasRef.current))
+              : interaction;
+            rendererRef.current?.setInteraction(resolvedInteraction);
+            setInteractionState(
+              resolvedInteraction.hands.length,
+              resolvedInteraction.handsDetected,
+              resolvedInteraction.primaryGesture,
+            );
           },
           onTrackingMetrics: (trackingMs) => {
             setMetrics(undefined, trackingMs);
@@ -630,18 +776,20 @@ export function useExperienceController() {
       tracker.attachVideo(videoElement);
       tracker.start();
 
-      window.setTimeout(() => {
+      clearTimeoutRef(calibratingTimeoutRef);
+      calibratingTimeoutRef.current = window.setTimeout(() => {
         setPhase((current) => (current === "calibrating" ? "handMissing" : current));
+        calibratingTimeoutRef.current = 0;
       }, 1000);
     } catch (error) {
-      console.error("Motion Lab startup failed", error);
+      console.error("Motion startup failed", error);
       cleanupCamera();
       setPhase(isPermissionError(error) ? "denied" : "unsupported");
       setOverlayStatus((current) => ({
         ...current,
         errorMessage: isPermissionError(error)
-          ? "La camara fue bloqueada. Activa el permiso del navegador para entrar al modo interactivo."
-          : "No pudimos iniciar la camara o el tracking en este dispositivo. Puedes reintentar o seguir en modo visual.",
+          ? "La c\u00e1mara fue bloqueada. Activ\u00e1 el permiso del navegador para entrar al modo interactivo."
+          : "No pudimos iniciar la c\u00e1mara o el tracking en este dispositivo. Pod\u00e9s reintentar o seguir en modo visual.",
       }));
     }
   };
@@ -705,11 +853,13 @@ export function useExperienceController() {
     fullscreenVisible,
     screenToggleHintVisible,
     wireframeMode,
+    debugHandPresent,
     isFullscreen,
     startExperience,
     retryExperience,
     enterFallback,
     resetTracking,
+    setDebugHandPresent,
     toggleWireframeMode,
     toggleFullscreen,
   };

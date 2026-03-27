@@ -1,4 +1,4 @@
-import { assetUrl } from "@/lib/assets";
+import { BrandLockup } from "@/components/BrandLockup";
 import { ExperienceViewport } from "@/components/ExperienceViewport";
 import { FallbackExperience } from "@/components/FallbackExperience";
 import { IntroGate } from "@/components/IntroGate";
@@ -44,7 +44,7 @@ export default function App() {
 
       {showHud ? (
         <button
-          aria-label={wireframeMode ? "Volver a camara" : "Apagar camara"}
+          aria-label={wireframeMode ? "Volver a c\u00e1mara" : "Apagar c\u00e1mara"}
           className="absolute inset-0 z-[12] cursor-pointer bg-transparent"
           data-live-chrome-control="true"
           onClick={toggleWireframeMode}
@@ -70,7 +70,7 @@ export default function App() {
 
           {showHint ? (
             <div className="pointer-events-none absolute inset-x-0 top-[22%] flex justify-center px-4">
-              <div className="live-hint-pill rounded-full border border-white/15 bg-black/45 px-4 py-2 text-center text-sm text-white/82 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+              <div className="panel-toast live-hint-pill rounded-full px-4 py-2 text-center text-sm text-white/82">
                 {EXPERIENCE_COPY.liveHint}
               </div>
             </div>
@@ -82,10 +82,10 @@ export default function App() {
 
       {showHud && screenToggleHintVisible ? (
         <div className="pointer-events-none absolute inset-0 z-[22] flex items-center justify-center px-6">
-          <div className="live-mode-toast flex max-w-lg items-center gap-3 rounded-[1.75rem] border border-white/18 bg-black/58 px-5 py-3 text-left text-base leading-7 text-white/94 shadow-[0_22px_56px_rgba(0,0,0,0.4)] backdrop-blur-xl sm:px-6 sm:py-3.5">
+          <div className="panel-toast live-mode-toast flex max-w-lg items-center gap-3 rounded-[1.75rem] px-5 py-3 text-left text-base leading-7 text-white/94 sm:px-6 sm:py-3.5">
             <span
               aria-hidden="true"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/16 bg-white/[0.07] text-white/92 shadow-[0_0_24px_rgba(128,235,255,0.14)]"
+              className="toast-icon-badge flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white/92"
             >
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24">
                 <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeOpacity="0.45" strokeWidth="1.2" />
@@ -109,14 +109,16 @@ export default function App() {
       {siteOnlyMode ? (
         <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom,0px)+18px)]">
           <div className="flex flex-col items-center gap-1">
-            <span className="text-[10px] font-medium uppercase tracking-[0.26em] text-foreground/66">powered by</span>
+            <span className="text-[10px] font-medium uppercase tracking-[0.26em] text-foreground/66">
+              {EXPERIENCE_COPY.poweredByLabel}
+            </span>
             <button
               className="site-only-link pointer-events-auto text-sm font-medium tracking-[0.18em] text-foreground/86 transition hover:text-foreground hover:underline hover:underline-offset-4 focus:outline-none focus-visible:text-foreground focus-visible:underline focus-visible:underline-offset-4"
               data-live-chrome-control="true"
               onClick={() => window.open("https://e-meow.com.ar", "_self", "noopener")}
               type="button"
             >
-              e-meow.com.ar
+              {EXPERIENCE_COPY.parentSite}
             </button>
           </div>
         </div>
@@ -129,16 +131,12 @@ export default function App() {
           }`}
         >
           <div className="relative flex min-h-20 items-start justify-center">
-            <img
-              alt="Logo e-Meow"
-              className="h-[4.5rem] w-auto object-contain opacity-75 drop-shadow-[0_0_18px_rgba(127,235,255,0.12)] sm:h-20"
-              src={assetUrl("brand/emeow-logo-white.png")}
-            />
+            <BrandLockup className="pt-2" showSignature={false} useBrandMarkAsInitial variant="minimal" />
 
             {fullscreenVisible ? (
               <button
                 aria-label={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-                className="pointer-events-auto absolute right-0 top-1 flex h-11 w-11 items-center justify-center bg-transparent text-foreground/82 transition hover:text-foreground focus:outline-none focus-visible:text-foreground"
+                className="focus-ring icon-control pointer-events-auto absolute right-0 top-1 flex h-11 w-11 items-center justify-center bg-transparent text-foreground/82 transition hover:text-foreground focus-visible:text-foreground"
                 data-live-chrome-control="true"
                 onClick={() => {
                   void toggleFullscreen();

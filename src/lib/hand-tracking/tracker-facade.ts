@@ -29,6 +29,12 @@ interface HandTrackingControllerLike {
   destroy(): void;
 }
 
+const MAX_CONSECUTIVE_BITMAP_CAPTURE_FAILURES = 3;
+
+export function shouldFallbackAfterBitmapCaptureFailure(consecutiveFailures: number) {
+  return consecutiveFailures >= MAX_CONSECUTIVE_BITMAP_CAPTURE_FAILURES;
+}
+
 function defaultViewportMapping() {
   return createViewportMapping({
     viewportWidth: 1,
@@ -62,6 +68,7 @@ export class HandTrackerController implements HandTrackingControllerLike {
   private lastVideoTime = -1;
   private trackIntervalMs: number;
   private frameInFlight = false;
+  private consecutiveBitmapCaptureFailures = 0;
   private nextFrameId = 0;
   private worker: Worker | null = null;
   private workerReady = false;
@@ -190,6 +197,7 @@ export class HandTrackerController implements HandTrackingControllerLike {
     this.running = true;
     this.paused = false;
     this.frameInFlight = false;
+    this.consecutiveBitmapCaptureFailures = 0;
     this.lastTrackedAt = 0;
     this.lastVideoTime = -1;
     this.scheduleNextTick();
@@ -306,6 +314,7 @@ export class HandTrackerController implements HandTrackingControllerLike {
 
     try {
       const bitmap = await createImageBitmap(video);
+      this.consecutiveBitmapCaptureFailures = 0;
       const frameId = ++this.nextFrameId;
       this.postToWorker(
         {
@@ -318,8 +327,18 @@ export class HandTrackerController implements HandTrackingControllerLike {
       );
     } catch (error) {
       this.frameInFlight = false;
-      console.warn("Failed to create ImageBitmap for worker tracking.", error);
-      void this.activateFallback("ImageBitmap capture failed.");
+      this.consecutiveBitmapCaptureFailures += 1;
+      if (shouldFallbackAfterBitmapCaptureFailure(this.consecutiveBitmapCaptureFailures)) {
+        console.warn("Failed to create ImageBitmap for worker tracking.", error);
+        void this.activateFallback("ImageBitmap capture failed repeatedly.");
+        return;
+      }
+
+      console.warn(
+        `ImageBitmap capture failed (${this.consecutiveBitmapCaptureFailures}/${MAX_CONSECUTIVE_BITMAP_CAPTURE_FAILURES}). Retrying.`,
+        error,
+      );
+      this.scheduleNextTick();
       return;
     }
 
@@ -331,6 +350,7 @@ export class HandTrackerController implements HandTrackingControllerLike {
 
     if (message.type === "trackingResult") {
       this.frameInFlight = false;
+      this.consecutiveBitmapCaptureFailures = 0;
       this.callbacks.onTrackingMetrics(message.trackingMs);
       this.callbacks.onInteraction(message.interaction);
       return;
@@ -368,6 +388,7 @@ export class HandTrackerController implements HandTrackingControllerLike {
     if (!this.worker) {
       this.workerReady = false;
       this.frameInFlight = false;
+      this.consecutiveBitmapCaptureFailures = 0;
       return;
     }
 
@@ -380,6 +401,7 @@ export class HandTrackerController implements HandTrackingControllerLike {
     this.worker = null;
     this.workerReady = false;
     this.frameInFlight = false;
+    this.consecutiveBitmapCaptureFailures = 0;
   }
 
   private async activateFallback(reason: string) {
