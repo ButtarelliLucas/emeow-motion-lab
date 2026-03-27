@@ -8,6 +8,15 @@ import {
   shouldRearmDualImplosion,
   updateDualImplosionGate,
 } from "@/lib/particles/implosion";
+import {
+  createDisplayHandState,
+  createRingMotionBuffers,
+  stepRingMotion,
+  updateDisplayHandState as updateOverlayDisplayHandState,
+  type OverlayDisplayHandState,
+  type RingMotionBuffers,
+} from "@/lib/particles/hand-overlay-motion";
+import { computeCameraFramingTarget } from "@/lib/particles/camera-framing";
 import { nextHigherQuality, nextLowerQuality } from "@/lib/quality";
 import { createViewportMapping } from "@/lib/viewport-mapping";
 import type { InteractionState, QualityTier, Vec2, ViewportMapping } from "@/types/experience";
@@ -30,6 +39,15 @@ interface ParticleBuffers {
   energies: Float32Array;
   speedLights: Float32Array;
   baseSizes: Float32Array;
+}
+
+interface DustBuffers {
+  positions: Float32Array;
+  velocities: Float32Array;
+  sizes: Float32Array;
+  alphas: Float32Array;
+  seeds: Float32Array;
+  depths: Float32Array;
 }
 
 interface CapsuleInfluence {
@@ -67,20 +85,16 @@ interface BiasPalette {
   shadowColor: THREE.Color;
 }
 
-interface RingParticleBuffers {
-  positions: Float32Array;
-  previousPositions: Float32Array;
-  sizes: Float32Array;
-  alphas: Float32Array;
-  trails: Float32Array;
-  angles: Float32Array;
-  radialOffsets: Float32Array;
-  phaseOffsets: Float32Array;
-}
+type RingParticleBuffers = RingMotionBuffers;
 
 interface HandRingParticleSystem {
   points: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
   buffers: RingParticleBuffers;
+}
+
+interface TrailLineVisual {
+  line: THREE.Line<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  positions: Float32Array;
 }
 
 interface HandWireframeVisual {
@@ -88,16 +102,18 @@ interface HandWireframeVisual {
   positions: Float32Array;
 }
 
-interface DisplayHandState {
-  initialized: boolean;
-  palm: Vec2;
-  ellipseAngle: number;
-  ellipseRadiusX: number;
-  ellipseRadiusY: number;
-  fingertips: Vec2[];
-  trail: Vec2[];
-  presence: number;
+interface SparkBurstBuffers {
+  positions: Float32Array;
+  velocities: Float32Array;
+  sizes: Float32Array;
+  alphas: Float32Array;
+  ages: Float32Array;
+  lifetimes: Float32Array;
+  actives: Float32Array;
+  seeds: Float32Array;
 }
+
+type DisplayHandState = OverlayDisplayHandState;
 
 const HAND_CONNECTIONS: Array<[number, number]> = [
   [0, 1],
@@ -129,31 +145,6 @@ function toSceneVector(point: Vec2) {
 
 function dot(a: Vec2, b: Vec2) {
   return a.x * b.x + a.y * b.y;
-}
-
-function lerpPoint(start: Vec2, end: Vec2, alpha: number): Vec2 {
-  return {
-    x: lerp(start.x, end.x, alpha),
-    y: lerp(start.y, end.y, alpha),
-  };
-}
-
-function lerpWrappedAngle(start: number, end: number, alpha: number) {
-  let delta = end - start;
-
-  while (delta > Math.PI) {
-    delta -= Math.PI * 2;
-  }
-
-  while (delta < -Math.PI) {
-    delta += Math.PI * 2;
-  }
-
-  return start + delta * alpha;
-}
-
-function expSmoothing(delta: number, rate: number) {
-  return 1 - Math.exp(-delta * rate);
 }
 
 function perpendicular(vector: Vec2): Vec2 {
@@ -205,6 +196,30 @@ function createGlowTexture(innerOpacity: number, outerOpacity: number) {
   gradient.addColorStop(0.38, "rgba(255,255,255,0.88)");
   gradient.addColorStop(0.68, "rgba(255,255,255,0.34)");
   gradient.addColorStop(1, `rgba(255,255,255,${outerOpacity})`);
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, size, size);
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+function createShockwaveTexture() {
+  const size = 160;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("2D context unavailable");
+  }
+
+  const center = size / 2;
+  const gradient = context.createRadialGradient(center, center, center * 0.24, center, center, center * 0.5);
+  gradient.addColorStop(0, "rgba(255,255,255,0)");
+  gradient.addColorStop(0.34, "rgba(255,255,255,0)");
+  gradient.addColorStop(0.52, "rgba(255,255,255,0.72)");
+  gradient.addColorStop(0.68, "rgba(255,255,255,0.18)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, size, size);
 
@@ -289,6 +304,16 @@ function createDynamicAttribute(array: Float32Array, itemSize: number) {
   return new THREE.BufferAttribute(array, itemSize).setUsage(THREE.DynamicDrawUsage);
 }
 
+function getDustCountForTier(tier: QualityTier, reducedMotion: boolean) {
+  const base = tier === "high" ? 520 : tier === "medium" ? 340 : 220;
+  return reducedMotion ? Math.max(140, Math.round(base * 0.72)) : base;
+}
+
+function getSparkCountForTier(tier: QualityTier, reducedMotion: boolean) {
+  const base = tier === "high" ? 28 : tier === "medium" ? 20 : 12;
+  return reducedMotion ? Math.max(8, Math.round(base * 0.7)) : base;
+}
+
 export class ParticleFieldRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -319,19 +344,31 @@ export class ParticleFieldRenderer {
   private qualityDrift = 0;
   private pointScale = 3;
   private overlayScale = 1;
+  private basePointScale = 3;
+  private baseOverlayScale = 1;
+  private cameraZoom = 1;
+  private particleScaleBoost = 1;
+  private overlayScaleBoost = 1;
   private renderTime = 0;
   private particles!: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private particleBuffers!: ParticleBuffers;
+  private dustParticles!: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  private dustBuffers!: DustBuffers;
+  private releaseSparks!: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  private sparkBuffers!: SparkBurstBuffers;
   private readonly implosionBloom: THREE.Sprite;
+  private readonly compressionHalo: THREE.Sprite;
+  private readonly releaseRing: THREE.Sprite;
   private palmRings: HandRingParticleSystem[] = [];
   private palmRingDetails: HandRingParticleSystem[] = [];
   private palmOrbitArcs: THREE.Sprite[] = [];
   private palmCores: THREE.Sprite[] = [];
   private tipSprites: THREE.Sprite[][] = [];
-  private trailLines: THREE.Line[] = [];
+  private trailLines: TrailLineVisual[] = [];
   private handWireframes: HandWireframeVisual[] = [];
   private displayHands: DisplayHandState[] = [];
   private glowTexture = createGlowTexture(1, 0);
+  private shockwaveTexture = createShockwaveTexture();
   private orbitalArcTexture = createOrbitalArcTexture();
   private readonly palettePrimary = new THREE.Color(LENSING_VIOLET);
   private readonly paletteSecondary = new THREE.Color(LENSING_VIOLET);
@@ -368,7 +405,31 @@ export class ParticleFieldRenderer {
       }),
     );
     this.implosionBloom.visible = false;
+    this.compressionHalo = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: this.glowTexture,
+        color: this.palettePrimary.clone(),
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 0,
+      }),
+    );
+    this.compressionHalo.visible = false;
+    this.releaseRing = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: this.shockwaveTexture,
+        color: this.paletteHighlight.clone(),
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 0,
+      }),
+    );
+    this.releaseRing.visible = false;
     this.scene.add(this.implosionBloom);
+    this.scene.add(this.compressionHalo);
+    this.scene.add(this.releaseRing);
     this.applyViewportMapping(this.viewportMapping.sceneHalfWidth, false);
     this.createHandsVisuals();
     this.setQualityTier(tier, false);
@@ -382,9 +443,6 @@ export class ParticleFieldRenderer {
     this.wireframeMode = enabled;
     if (this.particles) {
       this.particles.visible = true;
-    }
-    if (enabled) {
-      this.implosionBloom.visible = false;
     }
   }
 
@@ -446,6 +504,7 @@ export class ParticleFieldRenderer {
     this.stop();
     this.renderer.dispose();
     this.glowTexture.dispose();
+    this.shockwaveTexture.dispose();
     this.orbitalArcTexture.dispose();
     this.scene.traverse((child) => {
       const maybeWithGeometry = child as THREE.Object3D & { geometry?: { dispose?: () => void } };
@@ -486,10 +545,12 @@ export class ParticleFieldRenderer {
     this.camera.right = sceneHalfWidth;
     this.camera.top = 1;
     this.camera.bottom = -1;
+    this.basePointScale = Math.max(1.7, Math.min(viewportWidth, viewportHeight) / 300);
+    this.baseOverlayScale = clamp(390 / Math.max(320, Math.min(viewportWidth, viewportHeight)), 0.72, 1.08);
+    this.pointScale = this.basePointScale * this.particleScaleBoost;
+    this.overlayScale = this.baseOverlayScale * this.overlayScaleBoost;
+    this.camera.zoom = this.cameraZoom;
     this.camera.updateProjectionMatrix();
-
-    this.pointScale = Math.max(1.7, Math.min(viewportWidth, viewportHeight) / 300);
-    this.overlayScale = clamp(390 / Math.max(320, Math.min(viewportWidth, viewportHeight)), 0.72, 1.08);
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(viewportWidth, viewportHeight, false);
 
@@ -512,6 +573,21 @@ export class ParticleFieldRenderer {
     }
 
     this.particles.geometry.attributes.position.needsUpdate = true;
+
+    if (this.dustBuffers) {
+      const dustHorizontalLimit = nextHalfWidth * 1.16;
+      for (let index = 0; index < this.dustBuffers.positions.length / 3; index += 1) {
+        const positionIndex = index * 3;
+        const velocityIndex = index * 2;
+        this.dustBuffers.positions[positionIndex] = clamp(
+          this.dustBuffers.positions[positionIndex] * positionScaleX,
+          -dustHorizontalLimit,
+          dustHorizontalLimit,
+        );
+        this.dustBuffers.velocities[velocityIndex] *= positionScaleX;
+      }
+      this.dustParticles.geometry.attributes.position.needsUpdate = true;
+    }
   }
 
   private createBiasPalette(bias: number, energy: number): BiasPalette {
@@ -545,35 +621,28 @@ export class ParticleFieldRenderer {
     count,
     sizeRange,
     alphaRange,
+    shellCount,
   }: {
     count: number;
     sizeRange: [number, number];
     alphaRange: [number, number];
+    shellCount: number;
   }): HandRingParticleSystem {
-    const positions = new Float32Array(count * 3);
-    const previousPositions = new Float32Array(count * 2);
-    const sizes = new Float32Array(count);
-    const alphas = new Float32Array(count);
-    const trails = new Float32Array(count * 2);
-    const angles = new Float32Array(count);
-    const radialOffsets = new Float32Array(count);
-    const phaseOffsets = new Float32Array(count);
+    const buffers = createRingMotionBuffers({
+      count,
+      shellCount,
+      sizeRange,
+      alphaRange,
+      overlayScale: this.overlayScale,
+      random: Math.random,
+    });
 
-    for (let index = 0; index < count; index += 1) {
-      angles[index] = (index / count) * Math.PI * 2 + THREE.MathUtils.randFloatSpread(0.06);
-      radialOffsets[index] = THREE.MathUtils.randFloatSpread(1);
-      phaseOffsets[index] = Math.random();
-      sizes[index] = THREE.MathUtils.randFloat(sizeRange[0], sizeRange[1]) * this.overlayScale;
-      alphas[index] = THREE.MathUtils.randFloat(alphaRange[0], alphaRange[1]);
-      previousPositions[index * 2] = 0;
-      previousPositions[index * 2 + 1] = 0;
-    }
-
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", createDynamicAttribute(positions, 3));
-      geometry.setAttribute("aSize", createDynamicAttribute(sizes, 1));
-      geometry.setAttribute("aAlpha", createDynamicAttribute(alphas, 1));
-      geometry.setAttribute("aTrail", createDynamicAttribute(trails, 2));
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", createDynamicAttribute(buffers.positions, 3));
+    geometry.setAttribute("aSize", createDynamicAttribute(buffers.sizes, 1));
+    geometry.setAttribute("aAlpha", createDynamicAttribute(buffers.alphas, 1));
+    geometry.setAttribute("aTrail", createDynamicAttribute(buffers.trails, 2));
+    geometry.setAttribute("aOrbit", new THREE.BufferAttribute(buffers.orbitFractions, 1));
 
     const material = new THREE.ShaderMaterial({
       transparent: true,
@@ -583,30 +652,44 @@ export class ParticleFieldRenderer {
         uColor: { value: this.palettePrimary.clone() },
         uHalo: { value: this.paletteSecondary.clone() },
         uOpacity: { value: 0 },
+        uSizeBoost: { value: 1 },
+        uHighlightPhase: { value: 0 },
+        uHighlightWidth: { value: 0.18 },
+        uHighlightStrength: { value: 0.26 },
+        uLeadBoost: { value: 0.2 },
       },
       vertexShader: `
         attribute float aSize;
         attribute float aAlpha;
         attribute vec2 aTrail;
+        attribute float aOrbit;
         uniform float uOpacity;
+        uniform float uSizeBoost;
         varying float vAlpha;
         varying vec2 vTrail;
         varying float vTrailMagnitude;
+        varying float vOrbit;
         void main() {
           vAlpha = aAlpha;
           vTrail = aTrail;
           vTrailMagnitude = clamp(length(aTrail), 0.0, 1.0);
+          vOrbit = aOrbit;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = aSize * (1.22 + vTrailMagnitude * 0.82);
+          gl_PointSize = aSize * uSizeBoost * (1.18 + vTrailMagnitude * 0.9);
         }
       `,
       fragmentShader: `
         uniform vec3 uColor;
         uniform vec3 uHalo;
         uniform float uOpacity;
+        uniform float uHighlightPhase;
+        uniform float uHighlightWidth;
+        uniform float uHighlightStrength;
+        uniform float uLeadBoost;
         varying float vAlpha;
         varying vec2 vTrail;
         varying float vTrailMagnitude;
+        varying float vOrbit;
         void main() {
           vec2 uv = gl_PointCoord - vec2(0.5);
           vec2 direction = vTrailMagnitude > 0.0001 ? normalize(vTrail) : vec2(0.0, 1.0);
@@ -614,13 +697,20 @@ export class ParticleFieldRenderer {
           float along = dot(uv, direction);
           float across = dot(uv, perpendicularDirection);
           float radial = length(uv);
-          float head = smoothstep(0.62, 0.04, radial);
-          float softGlow = smoothstep(0.86, 0.1, radial);
-          float tailBody = exp(-pow(across * 4.0, 2.0)) * smoothstep(0.34, -0.4, along);
-          float tailGlow = exp(-pow(across * 2.8, 2.0)) * smoothstep(0.26, -0.56, along);
-          float tail = (tailBody * 0.82 + tailGlow * 0.42) * vTrailMagnitude;
-          float alpha = max(head, tail) * vAlpha * uOpacity + softGlow * (0.18 + vTrailMagnitude * 0.08) * uOpacity;
-          vec3 color = mix(uColor, uHalo, smoothstep(0.52, 0.0, radial) * 0.54 + vTrailMagnitude * 0.24);
+          float head = smoothstep(0.6, 0.03, radial);
+          float softGlow = smoothstep(0.92, 0.12, radial);
+          float tailBody = exp(-pow(across * 4.2, 2.0)) * smoothstep(0.38, -0.46, along);
+          float tailGlow = exp(-pow(across * 2.6, 2.0)) * smoothstep(0.24, -0.62, along);
+          float tail = (tailBody * 0.86 + tailGlow * 0.44) * vTrailMagnitude;
+          float phaseDistance = abs(vOrbit - uHighlightPhase);
+          phaseDistance = min(phaseDistance, 1.0 - phaseDistance);
+          float traveler = smoothstep(uHighlightWidth, 0.0, phaseDistance);
+          float lead = smoothstep(0.16, -0.42, along) * vTrailMagnitude;
+          float alpha = max(head, tail) * vAlpha * uOpacity;
+          alpha += softGlow * (0.14 + vTrailMagnitude * 0.08 + traveler * uHighlightStrength * 0.12) * uOpacity;
+          alpha += traveler * (0.08 + lead * uLeadBoost * 0.12) * vAlpha * uOpacity;
+          vec3 color = mix(uColor, uHalo, smoothstep(0.58, 0.0, radial) * 0.48 + vTrailMagnitude * 0.18);
+          color = mix(color, uHalo, traveler * (0.22 + lead * uLeadBoost));
           gl_FragColor = vec4(color, alpha);
         }
       `,
@@ -632,16 +722,7 @@ export class ParticleFieldRenderer {
 
     return {
       points,
-      buffers: {
-        positions,
-        previousPositions,
-        sizes,
-        alphas,
-        trails,
-        angles,
-        radialOffsets,
-        phaseOffsets,
-      },
+      buffers,
     };
   }
 
@@ -660,57 +741,42 @@ export class ParticleFieldRenderer {
       time: number;
       flowAmount: number;
       zOffset: number;
+      bandThickness: number;
+      tangentSpread: number;
+      axisWarp: number;
+      followAlpha: number;
+      highlightPhase: number;
+      highlightWidth: number;
+      highlightStrength: number;
+      leadBoost: number;
     },
   ) {
-    const { positions, previousPositions, trails, angles, radialOffsets, phaseOffsets } = system.buffers;
     const geometry = system.points.geometry;
     const material = system.points.material;
-    const cosRotation = Math.cos(options.rotation);
-    const sinRotation = Math.sin(options.rotation);
 
     material.uniforms.uColor.value.copy(options.color);
     material.uniforms.uHalo.value.copy(options.haloColor);
     material.uniforms.uOpacity.value = options.opacity;
+    material.uniforms.uSizeBoost.value = this.overlayScaleBoost;
+    material.uniforms.uHighlightPhase.value = options.highlightPhase;
+    material.uniforms.uHighlightWidth.value = options.highlightWidth;
+    material.uniforms.uHighlightStrength.value = options.highlightStrength;
+    material.uniforms.uLeadBoost.value = options.leadBoost;
 
-    for (let index = 0; index < angles.length; index += 1) {
-      const orbitalRate = options.time * options.driftSpeed * (1 + (phaseOffsets[index] - 0.5) * 0.08);
-      const angle =
-        angles[index] +
-        orbitalRate +
-        Math.sin(options.time * (0.56 + phaseOffsets[index] * 0.68) + phaseOffsets[index] * Math.PI * 2) * options.flowAmount;
-      const radialJitter =
-        radialOffsets[index] * options.jitterAmplitude +
-        Math.sin(options.time * (0.92 + phaseOffsets[index] * 0.84) + phaseOffsets[index] * Math.PI * 4) * options.jitterAmplitude * 0.18;
-      const radiusX = Math.max(0.001, options.radiusX + radialJitter);
-      const radiusY = Math.max(0.001, options.radiusY + radialJitter);
-      const localX = Math.cos(angle) * radiusX;
-      const localY = Math.sin(angle) * radiusY;
-      const x = options.center.x + localX * cosRotation - localY * sinRotation;
-      const y = options.center.y + localX * sinRotation + localY * cosRotation;
-      const positionIndex = index * 3;
-      const previousIndex = index * 2;
-      const previousX = previousPositions[previousIndex];
-      const previousY = previousPositions[previousIndex + 1];
-      const deltaX = x - previousX;
-      const deltaY = y - previousY;
-      const deltaLength = Math.hypot(deltaX, deltaY);
-      const trailStrength = clamp(deltaLength / 0.009, 0, 1);
-      const trailDirection =
-        deltaLength > 0.0001
-          ? {
-              x: deltaX / deltaLength,
-              y: deltaY / deltaLength,
-            }
-          : { x: 0, y: 0 };
-
-      positions[positionIndex] = x;
-      positions[positionIndex + 1] = y;
-      positions[positionIndex + 2] = options.zOffset;
-      trails[previousIndex] = trailDirection.x * trailStrength;
-      trails[previousIndex + 1] = trailDirection.y * trailStrength;
-      previousPositions[previousIndex] = x;
-      previousPositions[previousIndex + 1] = y;
-    }
+    stepRingMotion(system.buffers, {
+      center: options.center,
+      rotation: options.rotation,
+      radiusX: options.radiusX,
+      radiusY: options.radiusY,
+      jitterAmplitude: options.jitterAmplitude,
+      driftSpeed: options.driftSpeed,
+      time: options.time,
+      flowAmount: options.flowAmount,
+      zOffset: options.zOffset,
+      bandThickness: options.bandThickness,
+      tangentSpread: options.tangentSpread,
+      axisWarp: options.axisWarp,
+    });
 
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.aTrail.needsUpdate = true;
@@ -753,6 +819,241 @@ export class ParticleFieldRenderer {
       material.uniforms.uDepthAmount.value = depth.amount;
       material.uniforms.uDepthBias.value = depth.bias;
     }
+
+    if (this.dustParticles) {
+      const dustMaterial = this.dustParticles.material;
+      dustMaterial.uniforms.uColorA.value.copy(palette.secondaryColor);
+      dustMaterial.uniforms.uColorB.value.copy(palette.haloColor);
+    }
+
+    if (this.releaseSparks) {
+      const sparkMaterial = this.releaseSparks.material;
+      sparkMaterial.uniforms.uColor.value.copy(palette.accentWarm.clone().lerp(palette.energyColor, 0.48));
+      sparkMaterial.uniforms.uHalo.value.copy(
+        palette.accentCool.clone().lerp(palette.haloColor, 0.54).lerp(EVENT_GOLD, 0.18),
+      );
+    }
+  }
+
+  private buildDustLayer() {
+    const geometry = new THREE.BufferGeometry();
+    const count = getDustCountForTier(this.tier, this.reducedMotion);
+    const positions = new Float32Array(count * 3);
+    const velocities = new Float32Array(count * 2);
+    const sizes = new Float32Array(count);
+    const alphas = new Float32Array(count);
+    const seeds = new Float32Array(count);
+    const depths = new Float32Array(count);
+    const halfWidth = this.viewportMapping.sceneHalfWidth;
+
+    for (let index = 0; index < count; index += 1) {
+      const positionIndex = index * 3;
+      const velocityIndex = index * 2;
+      positions[positionIndex] = THREE.MathUtils.randFloat(-halfWidth * 1.1, halfWidth * 1.1);
+      positions[positionIndex + 1] = THREE.MathUtils.randFloat(-1.08, 1.08);
+      positions[positionIndex + 2] = THREE.MathUtils.randFloat(-0.22, -0.02);
+      velocities[velocityIndex] = THREE.MathUtils.randFloatSpread(0.00022);
+      velocities[velocityIndex + 1] = THREE.MathUtils.randFloatSpread(0.00018);
+      sizes[index] = THREE.MathUtils.randFloat(0.85, 2.1) * this.pointScale;
+      alphas[index] = THREE.MathUtils.randFloat(0.08, 0.22);
+      seeds[index] = Math.random();
+      depths[index] = THREE.MathUtils.randFloat(0, 1);
+    }
+
+    geometry.setAttribute("position", createDynamicAttribute(positions, 3));
+    geometry.setAttribute("aSize", createDynamicAttribute(sizes, 1));
+    geometry.setAttribute("aAlpha", createDynamicAttribute(alphas, 1));
+    geometry.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
+    geometry.setAttribute("aDepth", new THREE.BufferAttribute(depths, 1));
+
+    const material = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uColorA: { value: this.paletteSecondary.clone() },
+        uColorB: { value: this.paletteHalo.clone() },
+        uOpacity: { value: 0.18 },
+        uGlowBoost: { value: 1 },
+      },
+      vertexShader: `
+        attribute float aSize;
+        attribute float aAlpha;
+        attribute float aSeed;
+        attribute float aDepth;
+        varying float vAlpha;
+        varying float vDepth;
+        varying float vSeed;
+        void main() {
+          vAlpha = aAlpha;
+          vDepth = aDepth;
+          vSeed = aSeed;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aSize * (0.76 + aDepth * 0.78);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColorA;
+        uniform vec3 uColorB;
+        uniform float uOpacity;
+        uniform float uGlowBoost;
+        varying float vAlpha;
+        varying float vDepth;
+        varying float vSeed;
+        void main() {
+          vec2 uv = gl_PointCoord - vec2(0.5);
+          float dist = length(uv);
+          float body = smoothstep(0.56, 0.0, dist);
+          float halo = smoothstep(0.84, 0.12, dist);
+          vec3 color = mix(uColorA, uColorB, 0.18 + vDepth * 0.52 + sin(vSeed * 20.0) * 0.06);
+          float alpha = (body * 0.68 + halo * 0.32 * uGlowBoost) * vAlpha * uOpacity;
+          gl_FragColor = vec4(color, alpha);
+        }
+      `,
+    });
+
+    const dust = new THREE.Points(geometry, material);
+    dust.frustumCulled = false;
+
+    if (this.dustParticles) {
+      this.scene.remove(this.dustParticles);
+      this.dustParticles.geometry.dispose();
+      this.dustParticles.material.dispose();
+    }
+
+    this.dustParticles = dust;
+    this.dustBuffers = {
+      positions,
+      velocities,
+      sizes,
+      alphas,
+      seeds,
+      depths,
+    };
+    this.scene.add(this.dustParticles);
+  }
+
+  private buildSparkBurst() {
+    const geometry = new THREE.BufferGeometry();
+    const count = getSparkCountForTier(this.tier, this.reducedMotion);
+    const positions = new Float32Array(count * 3);
+    const velocities = new Float32Array(count * 2);
+    const sizes = new Float32Array(count);
+    const alphas = new Float32Array(count);
+    const ages = new Float32Array(count);
+    const lifetimes = new Float32Array(count);
+    const actives = new Float32Array(count);
+    const seeds = new Float32Array(count);
+
+    for (let index = 0; index < count; index += 1) {
+      sizes[index] = THREE.MathUtils.randFloat(4.8, 8.8) * this.overlayScale;
+      alphas[index] = 0;
+      ages[index] = 1;
+      lifetimes[index] = 0.26;
+      actives[index] = 0;
+      seeds[index] = Math.random();
+    }
+
+    geometry.setAttribute("position", createDynamicAttribute(positions, 3));
+    geometry.setAttribute("aSize", createDynamicAttribute(sizes, 1));
+    geometry.setAttribute("aAlpha", createDynamicAttribute(alphas, 1));
+    geometry.setAttribute("aAge", createDynamicAttribute(ages, 1));
+    geometry.setAttribute("aActive", createDynamicAttribute(actives, 1));
+    geometry.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
+
+    const material = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uColor: { value: this.paletteHighlight.clone() },
+        uHalo: { value: HOT_HALO.clone() },
+        uOpacity: { value: 0 },
+      },
+      vertexShader: `
+        attribute float aSize;
+        attribute float aAlpha;
+        attribute float aAge;
+        attribute float aActive;
+        varying float vAlpha;
+        varying float vAge;
+        varying float vActive;
+        void main() {
+          vAlpha = aAlpha;
+          vAge = aAge;
+          vActive = aActive;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aSize * (1.12 - aAge * 0.28);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform vec3 uHalo;
+        uniform float uOpacity;
+        varying float vAlpha;
+        varying float vAge;
+        varying float vActive;
+        void main() {
+          vec2 uv = gl_PointCoord - vec2(0.5);
+          float dist = length(uv);
+          float spark = smoothstep(0.42, 0.0, dist);
+          float glow = smoothstep(0.9, 0.08, dist);
+          vec3 color = mix(uColor, uHalo, spark * 0.82 + glow * 0.08);
+          float alpha = (spark * 1.08 + glow * 0.34) * vAlpha * uOpacity * vActive * (1.0 - vAge);
+          gl_FragColor = vec4(color, alpha);
+        }
+      `,
+    });
+
+    const sparks = new THREE.Points(geometry, material);
+    sparks.frustumCulled = false;
+    sparks.visible = false;
+
+    if (this.releaseSparks) {
+      this.scene.remove(this.releaseSparks);
+      this.releaseSparks.geometry.dispose();
+      this.releaseSparks.material.dispose();
+    }
+
+    this.releaseSparks = sparks;
+    this.sparkBuffers = {
+      positions,
+      velocities,
+      sizes,
+      alphas,
+      ages,
+      lifetimes,
+      actives,
+      seeds,
+    };
+    this.scene.add(this.releaseSparks);
+  }
+
+  private updateCameraFraming(delta: number) {
+    const target = computeCameraFramingTarget(this.interaction, this.reducedMotion);
+    const zoomAlpha = clamp(1 - Math.exp(-delta * 4.8), 0.04, 0.16);
+    const focusAlpha = clamp(1 - Math.exp(-delta * 4.2), 0.03, 0.14);
+
+    this.cameraZoom = lerp(this.cameraZoom, target.zoom, zoomAlpha);
+    this.particleScaleBoost = lerp(this.particleScaleBoost, target.particleScaleBoost, zoomAlpha);
+    this.overlayScaleBoost = lerp(this.overlayScaleBoost, target.overlayScaleBoost, zoomAlpha);
+    this.pointScale = this.basePointScale * this.particleScaleBoost;
+    this.overlayScale = this.baseOverlayScale * this.overlayScaleBoost;
+
+    const zoomRangeX = this.viewportMapping.sceneHalfWidth * (1 - 1 / Math.max(this.cameraZoom, 1));
+    const zoomRangeY = 1 * (1 - 1 / Math.max(this.cameraZoom, 1));
+    const focusStrength = lerp(0.04, 0.18, target.proximity);
+    const targetX = target.focus
+      ? clamp(target.focus.x * focusStrength, -zoomRangeX * 0.82, zoomRangeX * 0.82)
+      : 0;
+    const targetY = target.focus
+      ? clamp(target.focus.y * focusStrength, -zoomRangeY * 0.82, zoomRangeY * 0.82)
+      : 0;
+
+    this.camera.position.x = lerp(this.camera.position.x, targetX, focusAlpha);
+    this.camera.position.y = lerp(this.camera.position.y, targetY, focusAlpha);
+    this.camera.zoom = this.cameraZoom;
+    this.camera.updateProjectionMatrix();
   }
 
   private buildParticles() {
@@ -854,7 +1155,7 @@ export class ParticleFieldRenderer {
           vDepth = clamp(0.5 + parallax * 1.25, 0.0, 1.0);
           vSpeedLight = aSpeedLight;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(shifted, position.z + parallax * 0.08, 1.0);
-          gl_PointSize = aSize * clamp(1.0 + parallax * 0.35, 0.72, 1.45);
+          gl_PointSize = aSize * clamp(1.0 + parallax * 0.34, 0.72, 1.4);
         }
       `,
       fragmentShader: `
@@ -874,24 +1175,27 @@ export class ParticleFieldRenderer {
         void main() {
           vec2 uv = gl_PointCoord - vec2(0.5);
           float dist = length(uv);
-          float alpha = smoothstep(0.56, 0.02, dist) * vAlpha;
           float tone = clamp(vTone, 0.0, 1.0);
           float energy = clamp(vEnergy, 0.0, 1.0);
           float speedLight = clamp(vSpeedLight, 0.0, 1.0);
-          float innerCore = smoothstep(0.22, 0.0, dist);
-          float coreHalo = smoothstep(0.36, 0.02, dist);
+          float innerCore = smoothstep(0.2, 0.0, dist);
+          float body = smoothstep(0.52, 0.08, dist);
+          float outerHalo = smoothstep(0.98, 0.16, dist);
+          float rim = smoothstep(0.62, 0.2, dist) - smoothstep(0.28, 0.06, dist);
           vec3 base = mix(uColorShadow, uColorViolet, smoothstep(0.04, 0.64, tone));
           vec3 gesture = mix(uColorViolet, uColorBias, 0.18 + smoothstep(0.12, 0.88, tone) * 0.82);
           vec3 accent = mix(uColorAccentCool, uColorAccentWarm, clamp(0.5 + vDepth * 0.18 + tone * 0.1, 0.0, 1.0));
-          vec3 color = mix(base, gesture, 0.54 + tone * 0.18);
-          color = mix(color, accent, 0.2 + tone * 0.12 + energy * 0.08);
-          color = mix(color, uColorVoid, smoothstep(0.36, 0.98, energy) * smoothstep(0.1, 0.0, dist) * 0.14);
-          color = mix(color, uColorEnergy, smoothstep(0.34, 0.9, energy) * 0.42);
-          color = mix(color, uColorHalo, smoothstep(0.84, 1.0, energy) * 0.28);
-          color = mix(color, uColorHalo, innerCore * (0.2 + tone * 0.18 + speedLight * 0.16));
-          color = mix(color, uColorEnergy, innerCore * (energy * 0.12 + speedLight * 0.08));
-          alpha += coreHalo * (0.08 + tone * 0.06 + speedLight * 0.08) * vAlpha;
-          alpha *= 0.88 + tone * 0.22 + energy * 0.16 + speedLight * 0.12;
+          vec3 color = mix(base, gesture, 0.48 + tone * 0.22);
+          color = mix(color, accent, 0.18 + tone * 0.12 + energy * 0.1);
+          color = mix(color, uColorEnergy, smoothstep(0.32, 0.9, energy) * 0.46);
+          color = mix(color, uColorHalo, rim * (0.14 + tone * 0.1 + speedLight * 0.12));
+          color = mix(color, uColorHalo, innerCore * (0.36 + tone * 0.18 + speedLight * 0.18));
+          color = mix(color, uColorEnergy, innerCore * (0.12 + energy * 0.22 + speedLight * 0.1));
+          color = mix(color, uColorVoid, smoothstep(0.42, 1.0, energy) * smoothstep(0.12, 0.0, dist) * 0.12);
+          float alpha = body * vAlpha;
+          alpha += outerHalo * (0.08 + tone * 0.08 + energy * 0.06 + speedLight * 0.14) * vAlpha;
+          alpha += innerCore * (0.12 + energy * 0.08 + speedLight * 0.04) * vAlpha;
+          alpha *= 0.9 + tone * 0.2 + energy * 0.16 + speedLight * 0.14;
           gl_FragColor = vec4(color, alpha);
         }
       `,
@@ -899,7 +1203,7 @@ export class ParticleFieldRenderer {
 
     const particles = new THREE.Points(geometry, material);
     particles.frustumCulled = false;
-    particles.visible = !this.wireframeMode;
+    particles.visible = true;
 
     if (this.particles) {
       this.scene.remove(this.particles);
@@ -921,6 +1225,8 @@ export class ParticleFieldRenderer {
       baseSizes,
     };
     this.scene.add(this.particles);
+    this.buildDustLayer();
+    this.buildSparkBurst();
     this.updatePalette(this.interaction.paletteBias, 0, {
       center: null,
       axis: { x: 1, y: 0 },
@@ -933,14 +1239,16 @@ export class ParticleFieldRenderer {
   private createHandsVisuals() {
     for (let handIndex = 0; handIndex < 2; handIndex += 1) {
       const ring = this.createRingParticleSystem({
-        count: 52,
+        count: 72,
         sizeRange: [7.4, 11.4],
         alphaRange: [0.78, 1],
+        shellCount: 5,
       });
       const detail = this.createRingParticleSystem({
-        count: 30,
+        count: 44,
         sizeRange: [4.8, 7.2],
         alphaRange: [0.58, 0.92],
+        shellCount: 4,
       });
       const orbitalMaterial = new THREE.SpriteMaterial({
         map: this.orbitalArcTexture,
@@ -983,20 +1291,56 @@ export class ParticleFieldRenderer {
       }
       this.tipSprites.push(tipGroup);
 
+      const trailPositions = new Float32Array(24 * 3);
+      const trailProgress = new Float32Array(24);
+      for (let trailIndex = 0; trailIndex < 24; trailIndex += 1) {
+        trailProgress[trailIndex] = trailIndex / 23;
+      }
       const trailGeometry = new THREE.BufferGeometry();
-        trailGeometry.setAttribute("position", createDynamicAttribute(new Float32Array(24 * 3), 3));
+      trailGeometry.setAttribute("position", createDynamicAttribute(trailPositions, 3));
+      trailGeometry.setAttribute("aProgress", new THREE.BufferAttribute(trailProgress, 1));
       const trail = new THREE.Line(
         trailGeometry,
-        new THREE.LineBasicMaterial({
-          color: (handIndex === 0 ? this.palettePrimary : this.paletteSecondary).clone(),
+        new THREE.ShaderMaterial({
           transparent: true,
-          opacity: 0,
-          blending: THREE.AdditiveBlending,
           depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          uniforms: {
+            uColor: { value: (handIndex === 0 ? this.palettePrimary : this.paletteSecondary).clone() },
+            uHeadColor: { value: this.paletteHalo.clone() },
+            uOpacity: { value: 0 },
+            uWireBoost: { value: 1 },
+          },
+          vertexShader: `
+            attribute float aProgress;
+            varying float vProgress;
+            void main() {
+              vProgress = aProgress;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform vec3 uColor;
+            uniform vec3 uHeadColor;
+            uniform float uOpacity;
+            uniform float uWireBoost;
+            varying float vProgress;
+            void main() {
+              float head = 1.0 - clamp(vProgress, 0.0, 1.0);
+              float tail = 1.0 - head;
+              float alpha = mix(0.06, 0.8, pow(head, 0.72)) * uOpacity;
+              vec3 color = mix(uColor, uHeadColor, pow(head, 0.62) * 0.62);
+              alpha *= mix(0.68, 1.0, uWireBoost * 0.4);
+              gl_FragColor = vec4(color, alpha * (0.92 - tail * 0.32));
+            }
+          `,
         }),
       );
       trail.frustumCulled = false;
-      this.trailLines.push(trail);
+      this.trailLines.push({
+        line: trail,
+        positions: trailPositions,
+      });
       this.scene.add(trail);
 
       const wireframePositions = new Float32Array(HAND_CONNECTIONS.length * 2 * 3);
@@ -1019,16 +1363,7 @@ export class ParticleFieldRenderer {
         positions: wireframePositions,
       });
       this.scene.add(wireframeLine);
-      this.displayHands.push({
-        initialized: false,
-        palm: { x: 0, y: 0 },
-        ellipseAngle: 0,
-        ellipseRadiusX: 0.1,
-        ellipseRadiusY: 0.1,
-        fingertips: Array.from({ length: 5 }, () => ({ x: 0, y: 0 })),
-        trail: Array.from({ length: 24 }, () => ({ x: 0, y: 0 })),
-        presence: 0,
-      });
+      this.displayHands.push(createDisplayHandState(5, 24));
     }
   }
 
@@ -1045,8 +1380,11 @@ export class ParticleFieldRenderer {
     this.frameMs = lerp(this.frameMs, frameMs, 0.08);
     this.onStats(this.frameMs);
 
+    this.updateCameraFraming(delta);
     this.updateParticles(time * 0.001, delta);
+    this.updateDustParticles(time * 0.001, delta);
     this.updateHandsVisuals(delta);
+    this.updateSparkBurst(delta);
     this.updateImplosionVisual();
     this.renderer.render(this.scene, this.camera);
     this.adjustQuality();
@@ -1362,9 +1700,10 @@ export class ParticleFieldRenderer {
       velocities[velocityIndex] = velocityX;
       velocities[velocityIndex + 1] = velocityY;
       const sizeClass = clamp((baseSizes[index] - 0.7) / 7.9, 0, 1);
-      const glowScale = lerp(0.56, 1.08, sizeClass);
-      sizes[index] = baseSizes[index] * this.pointScale * (1 + glow * glowScale);
-      alphas[index] = clamp(0.26 + glow * 0.84 + speedLight * 0.1, 0.16, 1);
+      const hierarchyBoost = sizeClass < 0.24 ? 0.88 : sizeClass > 0.82 ? 1.08 : 1;
+      const glowScale = lerp(0.42, 1.02, sizeClass);
+      sizes[index] = baseSizes[index] * hierarchyBoost * this.pointScale * (1 + glow * glowScale);
+      alphas[index] = clamp(0.26 + glow * lerp(0.78, 0.96, sizeClass) + speedLight * 0.1, 0.16, 1);
       toneMixes[index] = clamp(tone, 0, 1);
       energies[index] = clamp(energy, 0, 1);
       speedLights[index] = speedLight;
@@ -1395,52 +1734,122 @@ export class ParticleFieldRenderer {
     });
   }
 
+  private updateDustParticles(time: number, delta: number) {
+    if (!this.dustBuffers || !this.dustParticles) {
+      return;
+    }
+
+    const { positions, velocities, alphas, sizes, seeds, depths } = this.dustBuffers;
+    const activeHands = this.interaction.hands;
+    const dualCenter =
+      this.interaction.dualActive && activeHands.length > 1 ? average(activeHands.map((hand) => hand.palm)) : null;
+    const targetRadius = dualCenter ? Math.max(0.16, this.interaction.dualDistance * 0.56) : 0;
+    const horizontalLimit = this.viewportMapping.sceneHalfWidth * 1.16;
+    const dustMaterial = this.dustParticles.material;
+    const wireOpacityBoost = this.wireframeMode ? 1.25 : 1;
+    const wireGlowBoost = this.wireframeMode ? 1.15 : 1;
+    const reducedFactor = this.reducedMotion ? 0.72 : 1;
+
+    dustMaterial.uniforms.uOpacity.value = 0.16 * wireOpacityBoost * reducedFactor;
+    dustMaterial.uniforms.uGlowBoost.value = wireGlowBoost;
+
+    for (let index = 0; index < alphas.length; index += 1) {
+      const positionIndex = index * 3;
+      const velocityIndex = index * 2;
+      let x = positions[positionIndex];
+      let y = positions[positionIndex + 1];
+      let velocityX = velocities[velocityIndex];
+      let velocityY = velocities[velocityIndex + 1];
+      const ambient =
+        Math.sin(time * (0.08 + depths[index] * 0.04) + seeds[index] * Math.PI * 2) +
+        Math.cos((x + y) * 0.9 + seeds[index] * 8.2);
+
+      velocityX += Math.cos(ambient) * 0.000012 * (0.8 + depths[index] * 0.4);
+      velocityY += Math.sin(ambient) * 0.00001 * (0.72 + depths[index] * 0.42);
+
+      if (dualCenter && targetRadius > 0.08) {
+        const toCenter = subtract(dualCenter, { x, y });
+        const distance = Math.max(0.0001, Math.hypot(toCenter.x, toCenter.y));
+        const direction = normalize(toCenter);
+        const influence = smoothstep(targetRadius * 1.9, targetRadius * 0.3, distance) * 0.18;
+        velocityX += direction.x * influence * 0.00028;
+        velocityY += direction.y * influence * 0.00024;
+      }
+
+      x += velocityX * delta * 60;
+      y += velocityY * delta * 60;
+      velocityX *= 0.986;
+      velocityY *= 0.986;
+
+      if (x < -horizontalLimit) {
+        x = horizontalLimit;
+      } else if (x > horizontalLimit) {
+        x = -horizontalLimit;
+      }
+      if (y < -1.12) {
+        y = 1.12;
+      } else if (y > 1.12) {
+        y = -1.12;
+      }
+
+      positions[positionIndex] = x;
+      positions[positionIndex + 1] = y;
+      positions[positionIndex + 2] = -0.22 + depths[index] * 0.18;
+      velocities[velocityIndex] = velocityX;
+      velocities[velocityIndex + 1] = velocityY;
+      sizes[index] = (0.82 + depths[index] * 1.28) * this.pointScale;
+      alphas[index] = clamp(0.08 + depths[index] * 0.14 + Math.sin(time * 0.34 + seeds[index] * 10) * 0.03, 0.06, 0.24);
+    }
+
+    this.dustParticles.geometry.attributes.position.needsUpdate = true;
+    this.dustParticles.geometry.attributes.aSize.needsUpdate = true;
+    this.dustParticles.geometry.attributes.aAlpha.needsUpdate = true;
+  }
+
+  private updateSparkBurst(delta: number) {
+    if (!this.sparkBuffers || !this.releaseSparks) {
+      return;
+    }
+
+    const { positions, velocities, alphas, ages, lifetimes, actives, sizes } = this.sparkBuffers;
+    const positionAttribute = this.releaseSparks.geometry.attributes.position;
+    const alphaAttribute = this.releaseSparks.geometry.attributes.aAlpha;
+    const ageAttribute = this.releaseSparks.geometry.attributes.aAge;
+    const activeAttribute = this.releaseSparks.geometry.attributes.aActive;
+    let anyActive = false;
+
+    for (let index = 0; index < actives.length; index += 1) {
+      if (actives[index] < 0.5) {
+        continue;
+      }
+
+      anyActive = true;
+      ages[index] += delta / Math.max(lifetimes[index], 0.0001);
+      const normalizedAge = clamp(ages[index], 0, 1);
+      const positionIndex = index * 3;
+      const velocityIndex = index * 2;
+
+      positions[positionIndex] += velocities[velocityIndex] * delta * 60;
+      positions[positionIndex + 1] += velocities[velocityIndex + 1] * delta * 60;
+      velocities[velocityIndex] *= 0.96;
+      velocities[velocityIndex + 1] *= 0.96;
+      alphas[index] = (1 - normalizedAge) * (0.72 + sizes[index] / Math.max(this.overlayScale * 12, 0.0001) * 0.22);
+      if (normalizedAge >= 0.999) {
+        actives[index] = 0;
+        alphas[index] = 0;
+      }
+    }
+
+    positionAttribute.needsUpdate = true;
+    alphaAttribute.needsUpdate = true;
+    ageAttribute.needsUpdate = true;
+    activeAttribute.needsUpdate = true;
+    this.releaseSparks.visible = anyActive;
+    (this.releaseSparks.material as THREE.ShaderMaterial).uniforms.uOpacity.value = anyActive ? 1 : 0;
+  }
+
   private updateDisplayHandState(handIndex: number, hand: InteractionState["hands"][number], delta: number) {
-    const state = this.displayHands[handIndex];
-    const leadSeconds = clamp(0.012 + hand.speed * 0.008, 0.012, 0.03);
-    const predictedPalm = {
-      x: hand.palm.x + hand.velocity.x * leadSeconds,
-      y: hand.palm.y + hand.velocity.y * leadSeconds,
-    };
-    const geometryAlpha = expSmoothing(delta, hand.speed > 1.1 ? 22 : 14);
-    const radiusAlpha = expSmoothing(delta, 16);
-    const angleAlpha = expSmoothing(delta, hand.speed > 1.1 ? 20 : 13);
-    const tipAlpha = expSmoothing(delta, hand.speed > 1.1 ? 24 : 16);
-    const trailAlpha = expSmoothing(delta, hand.speed > 1.1 ? 26 : 18);
-    const presenceAlpha = expSmoothing(delta, 10);
-
-    if (!state.initialized) {
-      state.initialized = true;
-      state.palm = { ...predictedPalm };
-      state.ellipseAngle = hand.ellipseAngle;
-      state.ellipseRadiusX = hand.ellipseRadiusX;
-      state.ellipseRadiusY = hand.ellipseRadiusY;
-      state.presence = hand.presence;
-      state.fingertips = hand.fingertips.map((tip) => ({ ...tip }));
-      state.trail = state.trail.map((_, index) => {
-        const target = hand.trail[index] ?? hand.palm;
-        return { ...target };
-      });
-      return state;
-    }
-
-    state.palm = lerpPoint(state.palm, predictedPalm, geometryAlpha);
-    state.ellipseAngle = lerpWrappedAngle(state.ellipseAngle, hand.ellipseAngle, angleAlpha);
-    state.ellipseRadiusX = lerp(state.ellipseRadiusX, hand.ellipseRadiusX, radiusAlpha);
-    state.ellipseRadiusY = lerp(state.ellipseRadiusY, hand.ellipseRadiusY, radiusAlpha);
-    state.presence = lerp(state.presence, hand.presence, presenceAlpha);
-
-    for (let index = 0; index < state.fingertips.length; index += 1) {
-      const target = hand.fingertips[index] ?? hand.palm;
-      state.fingertips[index] = lerpPoint(state.fingertips[index], target, tipAlpha);
-    }
-
-    for (let index = 0; index < state.trail.length; index += 1) {
-      const target = hand.trail[index] ?? hand.palm;
-      state.trail[index] = lerpPoint(state.trail[index], target, trailAlpha);
-    }
-
-    return state;
+    return updateOverlayDisplayHandState(this.displayHands[handIndex], hand, delta);
   }
 
   private resetDisplayHandState(handIndex: number) {
@@ -1459,7 +1868,7 @@ export class ParticleFieldRenderer {
       const tips = this.tipSprites[handIndex];
       const trail = this.trailLines[handIndex];
       const wireframe = this.handWireframes[handIndex];
-      const trailAttribute = trail.geometry.attributes.position as THREE.BufferAttribute;
+      const trailAttribute = trail.line.geometry.attributes.position as THREE.BufferAttribute;
 
       if (!hand) {
         this.resetDisplayHandState(handIndex);
@@ -1470,7 +1879,8 @@ export class ParticleFieldRenderer {
         tips.forEach((tip) => {
           tip.visible = false;
         });
-        (trail.material as THREE.LineBasicMaterial).opacity = 0;
+        (trail.line.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0;
+        trail.line.visible = false;
         wireframe.line.visible = false;
         continue;
       }
@@ -1505,8 +1915,10 @@ export class ParticleFieldRenderer {
         1,
       );
       const overlayPalette = this.createBiasPalette(overlayBias, gestureEnergy);
+      const overlayModeBoost = this.wireframeMode ? 1.12 : 1;
+      const trailModeBoost = this.wireframeMode ? 1.18 : 1;
       const outerColor = overlayPalette.biasColor;
-      const detailColor = overlayPalette.secondaryColor.clone().lerp(overlayPalette.accentCool, 0.18 + (1 - contourFlow) * 0.14);
+      const detailColor = overlayPalette.secondaryColor.clone().lerp(overlayPalette.accentCool, 0.34 + (1 - contourFlow) * 0.18);
       const orbitalColor = overlayPalette.biasColor.clone().lerp(overlayPalette.energyColor, 0.16 + gestureEnergy * 0.24);
       const coreColor = overlayPalette.coreColor;
       const trailColor = overlayPalette.trailColor;
@@ -1529,11 +1941,16 @@ export class ParticleFieldRenderer {
       const outerOpacity =
         displayHand.presence *
         (this.interaction.dualActive ? 0.78 : 0.7 + hand.attractionAmount * 0.22 + hand.openImpulseAmount * 0.16) *
-        (0.94 + contourFlow * 0.14);
+        (0.94 + contourFlow * 0.14) *
+        overlayModeBoost;
       const detailOpacity =
         displayHand.presence *
-        (this.interaction.dualActive ? 0.52 : 0.46 + hand.attractionAmount * 0.12 + hand.openImpulseAmount * 0.1) *
-        (0.86 + contourFlow * 0.2);
+        (this.interaction.dualActive ? 0.44 : 0.38 + hand.attractionAmount * 0.08 + hand.openImpulseAmount * 0.08) *
+        (0.82 + contourFlow * 0.14) *
+        overlayModeBoost;
+      const highlightPhase = (time * (0.22 + hand.openImpulseAmount * 0.08 + hand.speed * 0.03) + handIndex * 0.18) % 1;
+      const ringFollowAlpha = clamp(1 - Math.exp(-delta * (hand.speed > 1.1 ? 14 : 11)), 0.14, 0.26);
+      const detailFollowAlpha = clamp(1 - Math.exp(-delta * (hand.speed > 1.1 ? 17 : 13)), 0.16, 0.3);
 
       orbital.visible = true;
       core.visible = true;
@@ -1556,6 +1973,14 @@ export class ParticleFieldRenderer {
         time,
         flowAmount: 0.018 + contourFlow * 0.012,
         zOffset: 0.001,
+        bandThickness: Math.min(ringWidth, ringHeight) * (this.reducedMotion ? 0.028 : 0.046),
+        tangentSpread: Math.min(ringWidth, ringHeight) * (this.reducedMotion ? 0.014 : 0.024),
+        axisWarp: this.reducedMotion ? 0.16 : 0.28,
+        followAlpha: ringFollowAlpha,
+        highlightPhase,
+        highlightWidth: this.reducedMotion ? 0.16 : 0.12,
+        highlightStrength: this.reducedMotion ? 0.24 : 0.34,
+        leadBoost: this.reducedMotion ? 0.16 : 0.28,
       });
       this.updateRingParticleSystem(detailSystem, {
         center: displayHand.palm,
@@ -1570,6 +1995,14 @@ export class ParticleFieldRenderer {
         time,
         flowAmount: 0.012 + glowBreath * 0.008,
         zOffset: 0.002,
+        bandThickness: Math.min(detailWidth, detailHeight) * (this.reducedMotion ? 0.016 : 0.028),
+        tangentSpread: Math.min(detailWidth, detailHeight) * (this.reducedMotion ? 0.008 : 0.016),
+        axisWarp: this.reducedMotion ? 0.08 : 0.16,
+        followAlpha: detailFollowAlpha,
+        highlightPhase: (highlightPhase + 0.42) % 1,
+        highlightWidth: this.reducedMotion ? 0.24 : 0.2,
+        highlightStrength: 0.14,
+        leadBoost: 0.08,
       });
       orbitalMaterial.rotation = displayHand.ellipseAngle + orbitalSpin;
       coreMaterial.rotation = displayHand.ellipseAngle - ambientOuterSpin * 0.08;
@@ -1580,7 +2013,10 @@ export class ParticleFieldRenderer {
         (this.interaction.dualActive ? 0.26 : 0.22 + hand.openImpulseAmount * 0.2 + hand.openAmount * 0.04 + hand.attractionAmount * 0.06) *
         (0.76 + contourFlow * 0.24);
       coreMaterial.opacity =
-        displayHand.presence * (0.14 + hand.attractionAmount * 0.14 + hand.openImpulseAmount * 0.08) * (0.82 + glowBreath * 0.18);
+        displayHand.presence *
+        (0.18 + hand.attractionAmount * 0.16 + hand.openImpulseAmount * 0.1) *
+        (0.82 + glowBreath * 0.18) *
+        overlayModeBoost;
 
       tips.forEach((tip, tipIndex) => {
         const tipPoint = toSceneVector(displayHand.fingertips[tipIndex] ?? displayHand.palm);
@@ -1599,7 +2035,7 @@ export class ParticleFieldRenderer {
           (0.22 + hand.openAmount * 0.28 + hand.attractionAmount * 0.08 + hand.openImpulseAmount * 0.1);
       });
 
-      const positions = trailAttribute.array as Float32Array;
+      const positions = trail.positions;
       displayHand.trail.forEach((point, trailIndex) => {
         positions[trailIndex * 3] = point.x;
         positions[trailIndex * 3 + 1] = point.y;
@@ -1611,9 +2047,12 @@ export class ParticleFieldRenderer {
         positions[trailIndex * 3 + 2] = 0;
       }
       trailAttribute.needsUpdate = true;
-      const trailMaterial = trail.material as THREE.LineBasicMaterial;
-      trailMaterial.color.copy(trailColor);
-      trailMaterial.opacity = displayHand.presence * (this.interaction.dualActive ? 0.52 : 0.68);
+      trail.line.visible = true;
+      const trailMaterial = trail.line.material as THREE.ShaderMaterial;
+      trailMaterial.uniforms.uColor.value.copy(trailColor);
+      trailMaterial.uniforms.uHeadColor.value.copy(overlayPalette.haloColor.clone().lerp(overlayPalette.energyColor, 0.22));
+      trailMaterial.uniforms.uOpacity.value = displayHand.presence * (this.interaction.dualActive ? 0.58 : 0.72) * trailModeBoost;
+      trailMaterial.uniforms.uWireBoost.value = this.wireframeMode ? 1.16 : 1;
     }
   }
 
@@ -1778,50 +2217,136 @@ export class ParticleFieldRenderer {
     this.particles.geometry.attributes.position.needsUpdate = true;
     this.particles.geometry.attributes.aSize.needsUpdate = true;
     this.particles.geometry.attributes.aAlpha.needsUpdate = true;
+    this.triggerSparkBurst(center, radius, axis, burstStrength);
   }
 
-  private updateImplosionVisual() {
-    if (
-      this.wireframeMode ||
-      this.dualImplosion.phase === "idle" ||
-      this.dualImplosion.phase === "cooldown" ||
-      !this.dualImplosion.center
-    ) {
-      this.implosionBloom.visible = false;
+  private triggerSparkBurst(center: Vec2, radius: number, axis: Vec2, burstStrength: number) {
+    if (!this.sparkBuffers || !this.releaseSparks) {
       return;
     }
 
-      const bloomMaterial = this.implosionBloom.material as THREE.SpriteMaterial;
-      const center = this.dualImplosion.center;
-      const mix = clamp((this.dualImplosion.paletteBias + 1) * 0.5, 0, 1);
-      const flashColor = EVENT_GOLD.clone().lerp(HOT_HALO, 0.44).lerp(ION_CYAN.clone().lerp(ACCRETION_PINK, mix), 0.16);
+    const { positions, velocities, alphas, ages, lifetimes, actives, sizes, seeds } = this.sparkBuffers;
+    for (let index = 0; index < actives.length; index += 1) {
+      const angle = (index / actives.length) * Math.PI * 2 + seeds[index] * 0.9;
+      const outward = normalize({
+        x: Math.cos(angle) + axis.x * THREE.MathUtils.randFloatSpread(0.34),
+        y: Math.sin(angle) + axis.y * THREE.MathUtils.randFloatSpread(0.34),
+      });
+      const tangential = perpendicular(outward);
+      const positionIndex = index * 3;
+      const velocityIndex = index * 2;
+      const spawnRadius = THREE.MathUtils.randFloat(radius * 0.04, radius * (0.12 + burstStrength * 0.08));
+      positions[positionIndex] = center.x + outward.x * spawnRadius;
+      positions[positionIndex + 1] = center.y + outward.y * spawnRadius;
+      positions[positionIndex + 2] = 0.03;
+      velocities[velocityIndex] =
+        outward.x * (0.012 + burstStrength * 0.014) + tangential.x * THREE.MathUtils.randFloatSpread(0.004);
+      velocities[velocityIndex + 1] =
+        outward.y * (0.012 + burstStrength * 0.014) + tangential.y * THREE.MathUtils.randFloatSpread(0.004);
+      sizes[index] = THREE.MathUtils.randFloat(5.6, 10.8) * this.overlayScale * (1 + burstStrength * 0.48);
+      alphas[index] = THREE.MathUtils.randFloat(0.78, 1);
+      ages[index] = 0;
+      lifetimes[index] = THREE.MathUtils.randFloat(0.18, 0.34);
+      actives[index] = 1;
+    }
+
+    this.releaseSparks.geometry.attributes.position.needsUpdate = true;
+    this.releaseSparks.geometry.attributes.aSize.needsUpdate = true;
+    this.releaseSparks.geometry.attributes.aAlpha.needsUpdate = true;
+    this.releaseSparks.geometry.attributes.aAge.needsUpdate = true;
+    this.releaseSparks.geometry.attributes.aActive.needsUpdate = true;
+    this.releaseSparks.visible = true;
+    (this.releaseSparks.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 1;
+  }
+
+  private updateImplosionVisual() {
+    if (this.dualImplosion.phase === "idle" || this.dualImplosion.phase === "cooldown" || !this.dualImplosion.center) {
+      this.implosionBloom.visible = false;
+      this.compressionHalo.visible = false;
+      this.releaseRing.visible = false;
+      return;
+    }
+
+    const bloomMaterial = this.implosionBloom.material as THREE.SpriteMaterial;
+    const haloMaterial = this.compressionHalo.material as THREE.SpriteMaterial;
+    const ringMaterial = this.releaseRing.material as THREE.SpriteMaterial;
+    const center = this.dualImplosion.center;
+    const palette = this.createBiasPalette(this.dualImplosion.paletteBias, 1);
+    const flashColor = palette.energyColor
+      .clone()
+      .lerp(EVENT_GOLD, 0.36)
+      .lerp(HOT_HALO, 0.34)
+      .lerp(palette.accentWarm, 0.14);
+    const haloColor = palette.secondaryColor.clone().lerp(palette.accentCool, 0.34).lerp(this.paletteHalo, 0.18);
+    const ringColor = palette.accentCool
+      .clone()
+      .lerp(palette.accentWarm, 0.36)
+      .lerp(palette.energyColor, 0.28)
+      .lerp(HOT_HALO, 0.14);
     const radius = Math.max(this.dualImplosion.radius, 0.14);
+    const axisAngle = Math.atan2(this.dualImplosion.axis.y, this.dualImplosion.axis.x);
+    const dualFxBoost = this.wireframeMode ? 1.2 : 1;
     let opacity = 0;
     let scaleValue = radius * 1.8;
+    let haloOpacity = 0;
+    let haloScaleX = radius * 1.9;
+    let haloScaleY = radius * 1.18;
+    let ringOpacity = 0;
+    let ringScale = radius * 0.82;
 
     if (this.dualImplosion.phase === "gather") {
       const progress = clamp(this.dualImplosion.elapsed / 0.12, 0, 1);
-      opacity = 0.18 + progress * 0.16;
+      opacity = 0.28 + progress * 0.24;
       scaleValue = radius * (1.9 - progress * 0.45);
+      haloOpacity = (0.28 + progress * 0.22) * dualFxBoost;
+      haloScaleX = radius * lerp(2.2, 1.62, progress);
+      haloScaleY = radius * lerp(1.28, 0.92, progress);
     } else if (this.dualImplosion.phase === "implode") {
       const progress = clamp(this.dualImplosion.elapsed / 0.16, 0, 1);
-      opacity = 0.28 + progress * 0.22;
+      opacity = 0.42 + progress * 0.3;
       scaleValue = radius * (1.46 - progress * 0.68);
+      haloOpacity = (0.38 + progress * 0.28) * dualFxBoost;
+      haloScaleX = radius * lerp(1.56, 0.92, progress);
+      haloScaleY = radius * lerp(0.94, 0.54, progress);
     } else if (this.dualImplosion.phase === "release") {
       const progress = clamp(this.dualImplosion.elapsed / 0.2, 0, 1);
-      opacity = 0.46 - progress * 0.2;
+      opacity = 0.74 - progress * 0.24;
       scaleValue = radius * (0.54 + progress * (1.9 + this.dualImplosion.releaseBurstStrength * 0.7));
+      haloOpacity = (0.44 - progress * 0.28) * dualFxBoost;
+      haloScaleX = radius * (0.9 + progress * 0.82);
+      haloScaleY = radius * (0.62 + progress * 0.46);
+      ringOpacity = (0.84 - progress * 0.46) * dualFxBoost;
+      ringScale = radius * (0.54 + progress * (2.4 + this.dualImplosion.releaseBurstStrength * 0.86));
     } else {
       const progress = clamp(this.dualImplosion.elapsed / 0.14, 0, 1);
-      opacity = (1 - progress) * 0.76;
+      opacity = (1 - progress) * 0.98;
       scaleValue = radius * (1.2 + progress * 2.8);
+      haloOpacity = (1 - progress) * 0.28 * dualFxBoost;
+      ringOpacity = (1 - progress) * 0.3 * dualFxBoost;
+      ringScale = radius * (1.18 + progress * 1.2);
     }
 
     this.implosionBloom.visible = true;
     this.implosionBloom.position.set(center.x, center.y, 0);
     this.implosionBloom.scale.set(scaleValue, scaleValue, 1);
     bloomMaterial.color.copy(flashColor);
-    bloomMaterial.opacity = opacity;
+    bloomMaterial.opacity = opacity * dualFxBoost;
+
+    this.compressionHalo.visible = haloOpacity > 0.01;
+    this.compressionHalo.position.set(center.x, center.y, 0.01);
+    this.compressionHalo.scale.set(haloScaleX, haloScaleY, 1);
+    haloMaterial.rotation = axisAngle;
+    haloMaterial.color.copy(
+      haloColor.clone().lerp(palette.energyColor, this.dualImplosion.phase === "release" ? 0.18 : 0.06),
+    );
+    haloMaterial.opacity = haloOpacity;
+
+    this.releaseRing.visible = ringOpacity > 0.01;
+    this.releaseRing.position.set(center.x, center.y, 0.02);
+    this.releaseRing.scale.set(ringScale * 1.12, ringScale, 1);
+    ringMaterial.rotation = axisAngle;
+    ringMaterial.color.copy(ringColor);
+    ringMaterial.opacity = ringOpacity * (this.reducedMotion ? 0.82 : 1);
   }
 
   private adjustQuality() {
