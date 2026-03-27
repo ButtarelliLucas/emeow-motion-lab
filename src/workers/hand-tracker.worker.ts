@@ -9,12 +9,26 @@ declare const self: DedicatedWorkerGlobalScope;
 
 type WorkerImportGlobal = DedicatedWorkerGlobalScope & {
   import?: (url: string) => Promise<unknown>;
+  importScripts?: (...urls: string[]) => void;
 };
 
-// MediaPipe's wasm loader falls back to `self.import(...)` in module workers.
-// Some mobile browsers expose module workers but do not provide that helper.
+async function importClassicScript(url: string) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch worker dependency: ${url} (${response.status})`);
+  }
+
+  const source = await response.text();
+  (0, eval)(`${source}\n//# sourceURL=${url}`);
+}
+
+// MediaPipe's wasm loader expects either `importScripts(...)` or a `self.import(...)`
+// helper able to load classic scripts into the worker global scope.
 const workerGlobal = self as WorkerImportGlobal;
-workerGlobal.import ??= (url: string) => import(/* @vite-ignore */ url);
+workerGlobal.importScripts ??= (() => {
+  throw new TypeError("Module worker fallback to self.import");
+}) as typeof importScripts;
+workerGlobal.import ??= (url: string) => importClassicScript(url);
 
 let landmarker: HandLandmarker | null = null;
 let engine: TrackingStateEngine | null = null;

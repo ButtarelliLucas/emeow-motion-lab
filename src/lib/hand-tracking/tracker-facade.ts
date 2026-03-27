@@ -87,8 +87,9 @@ export class HandTrackerController implements HandTrackingControllerLike {
         type: "module",
       });
       this.worker.onmessage = this.handleWorkerMessage;
-      this.worker.onerror = () => {
-        void this.activateFallback("Worker tracker crashed.");
+      this.worker.onerror = (event) => {
+        const reason = event.message ? `Worker tracker crashed: ${event.message}` : "Worker tracker crashed.";
+        void this.activateFallback(reason);
       };
 
       await new Promise<void>((resolve, reject) => {
@@ -125,7 +126,7 @@ export class HandTrackerController implements HandTrackingControllerLike {
       });
     } catch (error) {
       console.warn("Worker tracker unavailable, falling back to main thread tracker.", error);
-      await this.activateFallback("Worker tracker failed to initialize.");
+      await this.activateFallback(error instanceof Error ? error.message : "Worker tracker failed to initialize.");
     }
   }
 
