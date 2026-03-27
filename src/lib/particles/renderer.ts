@@ -8,6 +8,14 @@ import {
   shouldRearmDualImplosion,
   updateDualImplosionGate,
 } from "@/lib/particles/implosion";
+import {
+  createDisplayHandState,
+  createRingMotionBuffers,
+  stepRingMotion,
+  updateDisplayHandState as updateOverlayDisplayHandState,
+  type OverlayDisplayHandState,
+  type RingMotionBuffers,
+} from "@/lib/particles/hand-overlay-motion";
 import { nextHigherQuality, nextLowerQuality } from "@/lib/quality";
 import { createViewportMapping } from "@/lib/viewport-mapping";
 import type { InteractionState, QualityTier, Vec2, ViewportMapping } from "@/types/experience";
@@ -76,20 +84,7 @@ interface BiasPalette {
   shadowColor: THREE.Color;
 }
 
-interface RingParticleBuffers {
-  positions: Float32Array;
-  previousPositions: Float32Array;
-  sizes: Float32Array;
-  alphas: Float32Array;
-  trails: Float32Array;
-  angles: Float32Array;
-  radialOffsets: Float32Array;
-  phaseOffsets: Float32Array;
-  orbitFractions: Float32Array;
-  laneOffsets: Float32Array;
-  tangentOffsets: Float32Array;
-  axisOffsets: Float32Array;
-}
+type RingParticleBuffers = RingMotionBuffers;
 
 interface HandRingParticleSystem {
   points: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
@@ -117,16 +112,7 @@ interface SparkBurstBuffers {
   seeds: Float32Array;
 }
 
-interface DisplayHandState {
-  initialized: boolean;
-  palm: Vec2;
-  ellipseAngle: number;
-  ellipseRadiusX: number;
-  ellipseRadiusY: number;
-  fingertips: Vec2[];
-  trail: Vec2[];
-  presence: number;
-}
+type DisplayHandState = OverlayDisplayHandState;
 
 const HAND_CONNECTIONS: Array<[number, number]> = [
   [0, 1],
@@ -158,31 +144,6 @@ function toSceneVector(point: Vec2) {
 
 function dot(a: Vec2, b: Vec2) {
   return a.x * b.x + a.y * b.y;
-}
-
-function lerpPoint(start: Vec2, end: Vec2, alpha: number): Vec2 {
-  return {
-    x: lerp(start.x, end.x, alpha),
-    y: lerp(start.y, end.y, alpha),
-  };
-}
-
-function lerpWrappedAngle(start: number, end: number, alpha: number) {
-  let delta = end - start;
-
-  while (delta > Math.PI) {
-    delta -= Math.PI * 2;
-  }
-
-  while (delta < -Math.PI) {
-    delta += Math.PI * 2;
-  }
-
-  return start + delta * alpha;
-}
-
-function expSmoothing(delta: number, rate: number) {
-  return 1 - Math.exp(-delta * rate);
 }
 
 function perpendicular(vector: Vec2): Vec2 {
@@ -659,41 +620,21 @@ export class ParticleFieldRenderer {
     alphaRange: [number, number];
     shellCount: number;
   }): HandRingParticleSystem {
-    const positions = new Float32Array(count * 3);
-    const previousPositions = new Float32Array(count * 2);
-    const sizes = new Float32Array(count);
-    const alphas = new Float32Array(count);
-    const trails = new Float32Array(count * 2);
-    const angles = new Float32Array(count);
-    const radialOffsets = new Float32Array(count);
-    const phaseOffsets = new Float32Array(count);
-    const orbitFractions = new Float32Array(count);
-    const laneOffsets = new Float32Array(count);
-    const tangentOffsets = new Float32Array(count);
-    const axisOffsets = new Float32Array(count);
-
-    for (let index = 0; index < count; index += 1) {
-      angles[index] = (index / count) * Math.PI * 2 + THREE.MathUtils.randFloatSpread(0.06);
-      radialOffsets[index] = THREE.MathUtils.randFloatSpread(1);
-      phaseOffsets[index] = Math.random();
-      orbitFractions[index] = index / count;
-      const shellIndex = index % shellCount;
-      const shellOffset = shellCount > 1 ? (shellIndex / (shellCount - 1)) * 2 - 1 : 0;
-      laneOffsets[index] = shellOffset + THREE.MathUtils.randFloatSpread(0.18);
-      tangentOffsets[index] = THREE.MathUtils.randFloatSpread(1);
-      axisOffsets[index] = THREE.MathUtils.randFloatSpread(1);
-      sizes[index] = THREE.MathUtils.randFloat(sizeRange[0], sizeRange[1]) * this.overlayScale;
-      alphas[index] = THREE.MathUtils.randFloat(alphaRange[0], alphaRange[1]);
-      previousPositions[index * 2] = 0;
-      previousPositions[index * 2 + 1] = 0;
-    }
+    const buffers = createRingMotionBuffers({
+      count,
+      shellCount,
+      sizeRange,
+      alphaRange,
+      overlayScale: this.overlayScale,
+      random: Math.random,
+    });
 
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", createDynamicAttribute(positions, 3));
-    geometry.setAttribute("aSize", createDynamicAttribute(sizes, 1));
-    geometry.setAttribute("aAlpha", createDynamicAttribute(alphas, 1));
-    geometry.setAttribute("aTrail", createDynamicAttribute(trails, 2));
-    geometry.setAttribute("aOrbit", new THREE.BufferAttribute(orbitFractions, 1));
+    geometry.setAttribute("position", createDynamicAttribute(buffers.positions, 3));
+    geometry.setAttribute("aSize", createDynamicAttribute(buffers.sizes, 1));
+    geometry.setAttribute("aAlpha", createDynamicAttribute(buffers.alphas, 1));
+    geometry.setAttribute("aTrail", createDynamicAttribute(buffers.trails, 2));
+    geometry.setAttribute("aOrbit", new THREE.BufferAttribute(buffers.orbitFractions, 1));
 
     const material = new THREE.ShaderMaterial({
       transparent: true,
@@ -771,20 +712,7 @@ export class ParticleFieldRenderer {
 
     return {
       points,
-      buffers: {
-        positions,
-        previousPositions,
-        sizes,
-        alphas,
-        trails,
-        angles,
-        radialOffsets,
-        phaseOffsets,
-        orbitFractions,
-        laneOffsets,
-        tangentOffsets,
-        axisOffsets,
-      },
+      buffers,
     };
   }
 
@@ -812,12 +740,8 @@ export class ParticleFieldRenderer {
       leadBoost: number;
     },
   ) {
-    const { positions, previousPositions, trails, angles, radialOffsets, phaseOffsets, laneOffsets, tangentOffsets, axisOffsets } =
-      system.buffers;
     const geometry = system.points.geometry;
     const material = system.points.material;
-    const cosRotation = Math.cos(options.rotation);
-    const sinRotation = Math.sin(options.rotation);
 
     material.uniforms.uColor.value.copy(options.color);
     material.uniforms.uHalo.value.copy(options.haloColor);
@@ -827,64 +751,20 @@ export class ParticleFieldRenderer {
     material.uniforms.uHighlightStrength.value = options.highlightStrength;
     material.uniforms.uLeadBoost.value = options.leadBoost;
 
-    for (let index = 0; index < angles.length; index += 1) {
-      const orbitalRate = options.time * options.driftSpeed * (1 + (phaseOffsets[index] - 0.5) * 0.08);
-      const lanePhase = phaseOffsets[index] * Math.PI * 2;
-      const angle =
-        angles[index] +
-        orbitalRate +
-        Math.sin(options.time * (0.56 + phaseOffsets[index] * 0.68) + lanePhase) * options.flowAmount;
-      const radialJitter =
-        radialOffsets[index] * options.jitterAmplitude +
-        Math.sin(options.time * (0.92 + phaseOffsets[index] * 0.84) + phaseOffsets[index] * Math.PI * 4) *
-          options.jitterAmplitude *
-          0.18;
-      const laneWave = Math.sin(angle * (2.2 + axisOffsets[index] * 0.42) + lanePhase) * options.axisWarp;
-      const secondaryWave = Math.cos(angle * (3.6 + axisOffsets[index] * 0.34) - lanePhase) * options.axisWarp * 0.52;
-      const bandOffset = laneOffsets[index] * options.bandThickness + laneWave * options.bandThickness * 0.42;
-      const tangentOffset =
-        tangentOffsets[index] * options.tangentSpread * (0.56 + Math.abs(secondaryWave) * 0.48) +
-        secondaryWave * options.tangentSpread * 0.18;
-      const radiusX = Math.max(0.001, options.radiusX + radialJitter + bandOffset * 0.22 + secondaryWave * options.bandThickness * 0.1);
-      const radiusY = Math.max(0.001, options.radiusY + radialJitter - bandOffset * 0.14 + laneWave * options.bandThickness * 0.08);
-      let localX = Math.cos(angle) * radiusX;
-      let localY = Math.sin(angle) * radiusY;
-      const normal = normalize({
-        x: Math.cos(angle) / Math.max(radiusX, 0.0001),
-        y: Math.sin(angle) / Math.max(radiusY, 0.0001),
-      });
-      const tangent = normalize({
-        x: -Math.sin(angle) * radiusX,
-        y: Math.cos(angle) * radiusY,
-      });
-      localX += normal.x * bandOffset + tangent.x * tangentOffset;
-      localY += normal.y * bandOffset + tangent.y * tangentOffset;
-      const x = options.center.x + localX * cosRotation - localY * sinRotation;
-      const y = options.center.y + localX * sinRotation + localY * cosRotation;
-      const positionIndex = index * 3;
-      const previousIndex = index * 2;
-      const previousX = previousPositions[previousIndex];
-      const previousY = previousPositions[previousIndex + 1];
-      const deltaX = x - previousX;
-      const deltaY = y - previousY;
-      const deltaLength = Math.hypot(deltaX, deltaY);
-      const trailStrength = clamp(deltaLength / 0.009, 0, 1);
-      const trailDirection =
-        deltaLength > 0.0001
-          ? {
-              x: deltaX / deltaLength,
-              y: deltaY / deltaLength,
-            }
-          : { x: 0, y: 0 };
-
-      positions[positionIndex] = x;
-      positions[positionIndex + 1] = y;
-      positions[positionIndex + 2] = options.zOffset;
-      trails[previousIndex] = trailDirection.x * trailStrength;
-      trails[previousIndex + 1] = trailDirection.y * trailStrength;
-      previousPositions[previousIndex] = x;
-      previousPositions[previousIndex + 1] = y;
-    }
+    stepRingMotion(system.buffers, {
+      center: options.center,
+      rotation: options.rotation,
+      radiusX: options.radiusX,
+      radiusY: options.radiusY,
+      jitterAmplitude: options.jitterAmplitude,
+      driftSpeed: options.driftSpeed,
+      time: options.time,
+      flowAmount: options.flowAmount,
+      zOffset: options.zOffset,
+      bandThickness: options.bandThickness,
+      tangentSpread: options.tangentSpread,
+      axisWarp: options.axisWarp,
+    });
 
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.aTrail.needsUpdate = true;
@@ -1444,16 +1324,7 @@ export class ParticleFieldRenderer {
         positions: wireframePositions,
       });
       this.scene.add(wireframeLine);
-      this.displayHands.push({
-        initialized: false,
-        palm: { x: 0, y: 0 },
-        ellipseAngle: 0,
-        ellipseRadiusX: 0.1,
-        ellipseRadiusY: 0.1,
-        fingertips: Array.from({ length: 5 }, () => ({ x: 0, y: 0 })),
-        trail: Array.from({ length: 24 }, () => ({ x: 0, y: 0 })),
-        presence: 0,
-      });
+      this.displayHands.push(createDisplayHandState(5, 24));
     }
   }
 
@@ -1938,51 +1809,7 @@ export class ParticleFieldRenderer {
   }
 
   private updateDisplayHandState(handIndex: number, hand: InteractionState["hands"][number], delta: number) {
-    const state = this.displayHands[handIndex];
-    const leadSeconds = clamp(0.012 + hand.speed * 0.008, 0.012, 0.03);
-    const predictedPalm = {
-      x: hand.palm.x + hand.velocity.x * leadSeconds,
-      y: hand.palm.y + hand.velocity.y * leadSeconds,
-    };
-    const geometryAlpha = expSmoothing(delta, hand.speed > 1.1 ? 22 : 14);
-    const radiusAlpha = expSmoothing(delta, 16);
-    const angleAlpha = expSmoothing(delta, hand.speed > 1.1 ? 20 : 13);
-    const tipAlpha = expSmoothing(delta, hand.speed > 1.1 ? 24 : 16);
-    const trailAlpha = expSmoothing(delta, hand.speed > 1.1 ? 26 : 18);
-    const presenceAlpha = expSmoothing(delta, 10);
-
-    if (!state.initialized) {
-      state.initialized = true;
-      state.palm = { ...predictedPalm };
-      state.ellipseAngle = hand.ellipseAngle;
-      state.ellipseRadiusX = hand.ellipseRadiusX;
-      state.ellipseRadiusY = hand.ellipseRadiusY;
-      state.presence = hand.presence;
-      state.fingertips = hand.fingertips.map((tip) => ({ ...tip }));
-      state.trail = state.trail.map((_, index) => {
-        const target = hand.trail[index] ?? hand.palm;
-        return { ...target };
-      });
-      return state;
-    }
-
-    state.palm = lerpPoint(state.palm, predictedPalm, geometryAlpha);
-    state.ellipseAngle = lerpWrappedAngle(state.ellipseAngle, hand.ellipseAngle, angleAlpha);
-    state.ellipseRadiusX = lerp(state.ellipseRadiusX, hand.ellipseRadiusX, radiusAlpha);
-    state.ellipseRadiusY = lerp(state.ellipseRadiusY, hand.ellipseRadiusY, radiusAlpha);
-    state.presence = lerp(state.presence, hand.presence, presenceAlpha);
-
-    for (let index = 0; index < state.fingertips.length; index += 1) {
-      const target = hand.fingertips[index] ?? hand.palm;
-      state.fingertips[index] = lerpPoint(state.fingertips[index], target, tipAlpha);
-    }
-
-    for (let index = 0; index < state.trail.length; index += 1) {
-      const target = hand.trail[index] ?? hand.palm;
-      state.trail[index] = lerpPoint(state.trail[index], target, trailAlpha);
-    }
-
-    return state;
+    return updateOverlayDisplayHandState(this.displayHands[handIndex], hand, delta);
   }
 
   private resetDisplayHandState(handIndex: number) {
