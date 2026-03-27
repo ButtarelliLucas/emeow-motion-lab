@@ -16,6 +16,7 @@ import {
   type OverlayDisplayHandState,
   type RingMotionBuffers,
 } from "@/lib/particles/hand-overlay-motion";
+import { computeCameraFramingTarget } from "@/lib/particles/camera-framing";
 import { nextHigherQuality, nextLowerQuality } from "@/lib/quality";
 import { createViewportMapping } from "@/lib/viewport-mapping";
 import type { InteractionState, QualityTier, Vec2, ViewportMapping } from "@/types/experience";
@@ -343,6 +344,11 @@ export class ParticleFieldRenderer {
   private qualityDrift = 0;
   private pointScale = 3;
   private overlayScale = 1;
+  private basePointScale = 3;
+  private baseOverlayScale = 1;
+  private cameraZoom = 1;
+  private particleScaleBoost = 1;
+  private overlayScaleBoost = 1;
   private renderTime = 0;
   private particles!: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private particleBuffers!: ParticleBuffers;
@@ -539,10 +545,12 @@ export class ParticleFieldRenderer {
     this.camera.right = sceneHalfWidth;
     this.camera.top = 1;
     this.camera.bottom = -1;
+    this.basePointScale = Math.max(1.7, Math.min(viewportWidth, viewportHeight) / 300);
+    this.baseOverlayScale = clamp(390 / Math.max(320, Math.min(viewportWidth, viewportHeight)), 0.72, 1.08);
+    this.pointScale = this.basePointScale * this.particleScaleBoost;
+    this.overlayScale = this.baseOverlayScale * this.overlayScaleBoost;
+    this.camera.zoom = this.cameraZoom;
     this.camera.updateProjectionMatrix();
-
-    this.pointScale = Math.max(1.7, Math.min(viewportWidth, viewportHeight) / 300);
-    this.overlayScale = clamp(390 / Math.max(320, Math.min(viewportWidth, viewportHeight)), 0.72, 1.08);
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(viewportWidth, viewportHeight, false);
 
@@ -644,6 +652,7 @@ export class ParticleFieldRenderer {
         uColor: { value: this.palettePrimary.clone() },
         uHalo: { value: this.paletteSecondary.clone() },
         uOpacity: { value: 0 },
+        uSizeBoost: { value: 1 },
         uHighlightPhase: { value: 0 },
         uHighlightWidth: { value: 0.18 },
         uHighlightStrength: { value: 0.26 },
@@ -655,6 +664,7 @@ export class ParticleFieldRenderer {
         attribute vec2 aTrail;
         attribute float aOrbit;
         uniform float uOpacity;
+        uniform float uSizeBoost;
         varying float vAlpha;
         varying vec2 vTrail;
         varying float vTrailMagnitude;
@@ -665,7 +675,7 @@ export class ParticleFieldRenderer {
           vTrailMagnitude = clamp(length(aTrail), 0.0, 1.0);
           vOrbit = aOrbit;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = aSize * (1.18 + vTrailMagnitude * 0.9);
+          gl_PointSize = aSize * uSizeBoost * (1.18 + vTrailMagnitude * 0.9);
         }
       `,
       fragmentShader: `
@@ -747,6 +757,7 @@ export class ParticleFieldRenderer {
     material.uniforms.uColor.value.copy(options.color);
     material.uniforms.uHalo.value.copy(options.haloColor);
     material.uniforms.uOpacity.value = options.opacity;
+    material.uniforms.uSizeBoost.value = this.overlayScaleBoost;
     material.uniforms.uHighlightPhase.value = options.highlightPhase;
     material.uniforms.uHighlightWidth.value = options.highlightWidth;
     material.uniforms.uHighlightStrength.value = options.highlightStrength;
@@ -1016,6 +1027,33 @@ export class ParticleFieldRenderer {
       seeds,
     };
     this.scene.add(this.releaseSparks);
+  }
+
+  private updateCameraFraming(delta: number) {
+    const target = computeCameraFramingTarget(this.interaction, this.reducedMotion);
+    const zoomAlpha = clamp(1 - Math.exp(-delta * 4.8), 0.04, 0.16);
+    const focusAlpha = clamp(1 - Math.exp(-delta * 4.2), 0.03, 0.14);
+
+    this.cameraZoom = lerp(this.cameraZoom, target.zoom, zoomAlpha);
+    this.particleScaleBoost = lerp(this.particleScaleBoost, target.particleScaleBoost, zoomAlpha);
+    this.overlayScaleBoost = lerp(this.overlayScaleBoost, target.overlayScaleBoost, zoomAlpha);
+    this.pointScale = this.basePointScale * this.particleScaleBoost;
+    this.overlayScale = this.baseOverlayScale * this.overlayScaleBoost;
+
+    const zoomRangeX = this.viewportMapping.sceneHalfWidth * (1 - 1 / Math.max(this.cameraZoom, 1));
+    const zoomRangeY = 1 * (1 - 1 / Math.max(this.cameraZoom, 1));
+    const focusStrength = lerp(0.04, 0.18, target.proximity);
+    const targetX = target.focus
+      ? clamp(target.focus.x * focusStrength, -zoomRangeX * 0.82, zoomRangeX * 0.82)
+      : 0;
+    const targetY = target.focus
+      ? clamp(target.focus.y * focusStrength, -zoomRangeY * 0.82, zoomRangeY * 0.82)
+      : 0;
+
+    this.camera.position.x = lerp(this.camera.position.x, targetX, focusAlpha);
+    this.camera.position.y = lerp(this.camera.position.y, targetY, focusAlpha);
+    this.camera.zoom = this.cameraZoom;
+    this.camera.updateProjectionMatrix();
   }
 
   private buildParticles() {
@@ -1342,6 +1380,7 @@ export class ParticleFieldRenderer {
     this.frameMs = lerp(this.frameMs, frameMs, 0.08);
     this.onStats(this.frameMs);
 
+    this.updateCameraFraming(delta);
     this.updateParticles(time * 0.001, delta);
     this.updateDustParticles(time * 0.001, delta);
     this.updateHandsVisuals(delta);
