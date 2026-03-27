@@ -31,9 +31,7 @@ export function IntroGate({ phase, onStart }: IntroGateProps) {
             <img alt="Logo e-Meow" className="h-16 w-16 object-contain" src={assetUrl("brand/emeow-logo-white.png")} />
           </div>
           <div className="min-w-0">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.32em] text-foreground-muted">
-              Experiencia interactiva
-            </p>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.32em] text-foreground-muted">Interactive</p>
             <p className="text-base font-medium tracking-[0.18em] text-foreground">Motion Lab</p>
           </div>
         </div>

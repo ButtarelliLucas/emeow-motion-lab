@@ -934,13 +934,13 @@ export class ParticleFieldRenderer {
     for (let handIndex = 0; handIndex < 2; handIndex += 1) {
       const ring = this.createRingParticleSystem({
         count: 52,
-        sizeRange: [6.8, 10.6],
-        alphaRange: [0.72, 1],
+        sizeRange: [7.4, 11.4],
+        alphaRange: [0.78, 1],
       });
       const detail = this.createRingParticleSystem({
         count: 30,
-        sizeRange: [4.2, 6.8],
-        alphaRange: [0.52, 0.88],
+        sizeRange: [4.8, 7.2],
+        alphaRange: [0.58, 0.92],
       });
       const orbitalMaterial = new THREE.SpriteMaterial({
         map: this.orbitalArcTexture,
@@ -1513,11 +1513,11 @@ export class ParticleFieldRenderer {
 
       wireframe.line.visible = false;
       const ringWidth =
-        Math.max(displayHand.ellipseRadiusX * 2.16 * (1 + hand.attractionAmount * 0.05 + hand.openAmount * 0.02), 0.16) *
+        Math.max(displayHand.ellipseRadiusX * 2.24 * (1 + hand.attractionAmount * 0.05 + hand.openAmount * 0.02), 0.16) *
         pulse *
         (1 + ripple * 0.35 - contraction);
       const ringHeight =
-        Math.max(displayHand.ellipseRadiusY * 2.16 * (1 + hand.attractionAmount * 0.04 + hand.openAmount * 0.04), 0.2) *
+        Math.max(displayHand.ellipseRadiusY * 2.24 * (1 + hand.attractionAmount * 0.04 + hand.openAmount * 0.04), 0.2) *
         pulse *
         (1 + ripple * 0.28 - contraction * 0.82);
       const detailWidth = ringWidth * (0.94 + glowBreath * 0.02 + hand.attractionAmount * 0.02);
@@ -1528,12 +1528,12 @@ export class ParticleFieldRenderer {
       const coreHeight = ringHeight * (0.36 + hand.attractionAmount * 0.04 + hand.openImpulseAmount * 0.05 + glowBreath * 0.015);
       const outerOpacity =
         displayHand.presence *
-        (this.interaction.dualActive ? 0.74 : 0.66 + hand.attractionAmount * 0.22 + hand.openImpulseAmount * 0.16) *
-        (0.92 + contourFlow * 0.12);
+        (this.interaction.dualActive ? 0.78 : 0.7 + hand.attractionAmount * 0.22 + hand.openImpulseAmount * 0.16) *
+        (0.94 + contourFlow * 0.14);
       const detailOpacity =
         displayHand.presence *
-        (this.interaction.dualActive ? 0.46 : 0.4 + hand.attractionAmount * 0.12 + hand.openImpulseAmount * 0.1) *
-        (0.84 + contourFlow * 0.18);
+        (this.interaction.dualActive ? 0.52 : 0.46 + hand.attractionAmount * 0.12 + hand.openImpulseAmount * 0.1) *
+        (0.86 + contourFlow * 0.2);
 
       orbital.visible = true;
       core.visible = true;

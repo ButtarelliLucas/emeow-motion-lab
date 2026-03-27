@@ -24,7 +24,6 @@ export default function App() {
     startExperience,
     retryExperience,
     enterFallback,
-    resetTracking,
     setHelpOpen,
     toggleWireframeMode,
     toggleFullscreen,
@@ -65,7 +64,6 @@ export default function App() {
               helpOpen={helpOpen}
               overlayStatus={overlayStatus}
               onGoHome={() => window.open("https://e-meow.com.ar", "_self", "noopener")}
-              onRecalibrate={resetTracking}
               onToggleHelp={() => setHelpOpen((current) => !current)}
             />
           ) : null}
@@ -93,7 +91,7 @@ export default function App() {
       {siteOnlyMode ? (
         <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom,0px)+18px)]">
           <button
-            className="pointer-events-auto bg-transparent text-sm font-medium tracking-[0.18em] text-foreground/86 transition hover:text-foreground hover:underline hover:underline-offset-4 focus:outline-none focus-visible:text-foreground focus-visible:underline focus-visible:underline-offset-4"
+            className="pointer-events-auto appearance-none border-0 bg-transparent px-0 py-0 text-sm font-medium tracking-[0.18em] text-foreground/86 shadow-none outline-none transition hover:bg-transparent hover:text-foreground hover:underline hover:underline-offset-4 focus:outline-none focus-visible:bg-transparent focus-visible:text-foreground focus-visible:underline focus-visible:underline-offset-4"
             data-live-chrome-control="true"
             onClick={() => window.open("https://e-meow.com.ar", "_self", "noopener")}
             type="button"
