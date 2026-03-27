@@ -249,6 +249,10 @@ function createDefaultViewportMapping(canvas: HTMLCanvasElement) {
   });
 }
 
+function createDynamicAttribute(array: Float32Array, itemSize: number) {
+  return new THREE.BufferAttribute(array, itemSize).setUsage(THREE.DynamicDrawUsage);
+}
+
 export class ParticleFieldRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -528,11 +532,11 @@ export class ParticleFieldRenderer {
       previousPositions[index * 2 + 1] = 0;
     }
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
-    geometry.setAttribute("aAlpha", new THREE.BufferAttribute(alphas, 1));
-    geometry.setAttribute("aTrail", new THREE.BufferAttribute(trails, 2));
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", createDynamicAttribute(positions, 3));
+      geometry.setAttribute("aSize", createDynamicAttribute(sizes, 1));
+      geometry.setAttribute("aAlpha", createDynamicAttribute(alphas, 1));
+      geometry.setAttribute("aTrail", createDynamicAttribute(trails, 2));
 
     const material = new THREE.ShaderMaterial({
       transparent: true,
@@ -754,13 +758,13 @@ export class ParticleFieldRenderer {
       speedLights[index] = 0;
     }
 
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
-    geometry.setAttribute("aAlpha", new THREE.BufferAttribute(alphas, 1));
-    geometry.setAttribute("aDepth", new THREE.BufferAttribute(depthLayers, 1));
-    geometry.setAttribute("aTone", new THREE.BufferAttribute(toneMixes, 1));
-    geometry.setAttribute("aEnergy", new THREE.BufferAttribute(energies, 1));
-    geometry.setAttribute("aSpeedLight", new THREE.BufferAttribute(speedLights, 1));
+      geometry.setAttribute("position", createDynamicAttribute(positions, 3));
+      geometry.setAttribute("aSize", createDynamicAttribute(sizes, 1));
+      geometry.setAttribute("aAlpha", createDynamicAttribute(alphas, 1));
+      geometry.setAttribute("aDepth", new THREE.BufferAttribute(depthLayers, 1));
+      geometry.setAttribute("aTone", createDynamicAttribute(toneMixes, 1));
+      geometry.setAttribute("aEnergy", createDynamicAttribute(energies, 1));
+      geometry.setAttribute("aSpeedLight", createDynamicAttribute(speedLights, 1));
 
     const material = new THREE.ShaderMaterial({
       transparent: true,
@@ -943,7 +947,7 @@ export class ParticleFieldRenderer {
       this.tipSprites.push(tipGroup);
 
       const trailGeometry = new THREE.BufferGeometry();
-      trailGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(24 * 3), 3));
+        trailGeometry.setAttribute("position", createDynamicAttribute(new Float32Array(24 * 3), 3));
       const trail = new THREE.Line(
         trailGeometry,
         new THREE.LineBasicMaterial({
@@ -960,7 +964,7 @@ export class ParticleFieldRenderer {
 
       const wireframePositions = new Float32Array(HAND_CONNECTIONS.length * 2 * 3);
       const wireframeGeometry = new THREE.BufferGeometry();
-      wireframeGeometry.setAttribute("position", new THREE.BufferAttribute(wireframePositions, 3));
+        wireframeGeometry.setAttribute("position", createDynamicAttribute(wireframePositions, 3));
       const wireframeLine = new THREE.LineSegments(
         wireframeGeometry,
         new THREE.LineBasicMaterial({

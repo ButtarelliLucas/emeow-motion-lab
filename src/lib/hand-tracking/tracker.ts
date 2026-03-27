@@ -98,6 +98,7 @@ export class HandTrackerController {
   private trackIntervalMs: number;
   private trailLength: number;
   private viewportMapping: ViewportMapping = defaultViewportMapping();
+  private detailedLandmarksEnabled = false;
 
   constructor({ qualityTier, reducedMotion, callbacks }: TrackerOptions) {
     this.callbacks = callbacks;
@@ -162,6 +163,10 @@ export class HandTrackerController {
   setQualityTier(qualityTier: QualityTier) {
     this.trackIntervalMs = 1000 / EXPERIENCE_CONFIG.trackingTargetFps[qualityTier];
     this.trailLength = getQualityProfile(qualityTier, this.reducedMotion).trailLength;
+  }
+
+  setDetailedLandmarksEnabled(enabled: boolean) {
+    this.detailedLandmarksEnabled = enabled;
   }
 
   start() {
@@ -321,15 +326,17 @@ export class HandTrackerController {
       const rawPalm = previous
         ? lerpVec2(previous.rawPalm, measured.palm, smoothingAlpha(moving, 0.42, 0.62))
         : measured.palm;
-      const rawLandmarks = landmarks.map((point, landmarkIndex) =>
-        previous?.rawLandmarks[landmarkIndex]
-          ? lerpVec2(
-              previous.rawLandmarks[landmarkIndex],
-              { x: point.x, y: point.y },
-              smoothingAlpha(moving, 0.32, 0.52),
-            )
-          : { x: point.x, y: point.y },
-      );
+      const rawLandmarks = this.detailedLandmarksEnabled
+        ? landmarks.map((point, landmarkIndex) =>
+            previous?.rawLandmarks[landmarkIndex]
+              ? lerpVec2(
+                  previous.rawLandmarks[landmarkIndex],
+                  { x: point.x, y: point.y },
+                  smoothingAlpha(moving, 0.32, 0.52),
+                )
+              : { x: point.x, y: point.y },
+          )
+        : (previous?.rawLandmarks ?? []);
       const rawFingertips = measured.fingertips.map((tip, fingertipIndex) =>
         previous?.rawFingertips[fingertipIndex]
           ? lerpVec2(previous.rawFingertips[fingertipIndex], tip, smoothingAlpha(moving, 0.38, 0.58))
@@ -339,7 +346,9 @@ export class HandTrackerController {
         ? lerpVec2(previous.rawPinchPoint, measured.pinchPoint, smoothingAlpha(moving, 0.4, 0.64))
         : measured.pinchPoint;
       const palm = mapNormalizedPointToScene(rawPalm, this.viewportMapping);
-      const sceneLandmarks = rawLandmarks.map((point) => mapNormalizedPointToScene(point, this.viewportMapping));
+      const sceneLandmarks = this.detailedLandmarksEnabled
+        ? rawLandmarks.map((point) => mapNormalizedPointToScene(point, this.viewportMapping))
+        : (previous?.landmarks ?? []);
       const fingertips = rawFingertips.map((tip) => mapNormalizedPointToScene(tip, this.viewportMapping));
       const pinchPoint = mapNormalizedPointToScene(rawPinchPoint, this.viewportMapping);
       const ellipseXAnchor = mapNormalizedPointToScene(

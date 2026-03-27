@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import { DEFAULT_METRICS, EXPERIENCE_CONFIG } from "@/config/experience";
+import { DEFAULT_METRICS, getCameraConstraints } from "@/config/experience";
 import {
   LIVE_CHROME_FULLSCREEN_DELAY_MS,
   LIVE_CHROME_HAND_LATCH_MS,
@@ -132,6 +132,8 @@ export function useExperienceController() {
   const handPresenceLatchedRef = useRef(false);
   const reducedMotion =
     typeof window !== "undefined" ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false;
+  const isMobileDevice =
+    typeof navigator !== "undefined" ? /android|iphone|ipad|mobile/i.test(navigator.userAgent) : false;
   const fullscreenSupported = typeof document !== "undefined" ? document.fullscreenEnabled : false;
   const [phase, setPhase] = useState<ExperiencePhase>("intro");
   const [helpOpen, setHelpOpen] = useState(false);
@@ -325,6 +327,7 @@ export function useExperienceController() {
 
   useEffect(() => {
     rendererRef.current?.setWireframeMode(wireframeMode);
+    trackerRef.current?.setDetailedLandmarksEnabled(wireframeMode);
   }, [wireframeMode]);
 
   useEffect(() => {
@@ -552,7 +555,12 @@ export function useExperienceController() {
 
     try {
       const stream = await withTimeout(
-        navigator.mediaDevices.getUserMedia(EXPERIENCE_CONFIG.cameraConstraints),
+        navigator.mediaDevices.getUserMedia(
+          getCameraConstraints({
+            mobile: isMobileDevice,
+            qualityTier,
+          }),
+        ),
         12000,
         "La camara no respondio a tiempo.",
       );
@@ -597,6 +605,7 @@ export function useExperienceController() {
           },
         },
       });
+      tracker.setDetailedLandmarksEnabled(wireframeMode);
 
       trackerRef.current = tracker;
       syncViewportMapping(videoElement, canvasRef.current, rendererRef.current, tracker);
