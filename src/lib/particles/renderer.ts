@@ -1065,8 +1065,8 @@ export class ParticleFieldRenderer {
           float dist = length(uv);
           float spark = smoothstep(0.42, 0.0, dist);
           float glow = smoothstep(0.9, 0.08, dist);
-          vec3 color = mix(uColor, uHalo, spark * 0.72);
-          float alpha = (spark * 0.9 + glow * 0.26) * vAlpha * uOpacity * vActive * (1.0 - vAge);
+          vec3 color = mix(uColor, uHalo, spark * 0.82 + glow * 0.08);
+          float alpha = (spark * 1.08 + glow * 0.34) * vAlpha * uOpacity * vActive * (1.0 - vAge);
           gl_FragColor = vec4(color, alpha);
         }
       `,
@@ -1218,24 +1218,24 @@ export class ParticleFieldRenderer {
           float tone = clamp(vTone, 0.0, 1.0);
           float energy = clamp(vEnergy, 0.0, 1.0);
           float speedLight = clamp(vSpeedLight, 0.0, 1.0);
-          float innerCore = smoothstep(0.18, 0.0, dist);
+          float innerCore = smoothstep(0.2, 0.0, dist);
           float body = smoothstep(0.52, 0.08, dist);
-          float outerHalo = smoothstep(0.94, 0.18, dist);
+          float outerHalo = smoothstep(0.98, 0.16, dist);
           float rim = smoothstep(0.62, 0.2, dist) - smoothstep(0.28, 0.06, dist);
           vec3 base = mix(uColorShadow, uColorViolet, smoothstep(0.04, 0.64, tone));
           vec3 gesture = mix(uColorViolet, uColorBias, 0.18 + smoothstep(0.12, 0.88, tone) * 0.82);
           vec3 accent = mix(uColorAccentCool, uColorAccentWarm, clamp(0.5 + vDepth * 0.18 + tone * 0.1, 0.0, 1.0));
           vec3 color = mix(base, gesture, 0.48 + tone * 0.22);
-          color = mix(color, accent, 0.16 + tone * 0.1 + energy * 0.08);
-          color = mix(color, uColorEnergy, smoothstep(0.36, 0.92, energy) * 0.38);
-          color = mix(color, uColorHalo, rim * (0.1 + tone * 0.08 + speedLight * 0.08));
-          color = mix(color, uColorHalo, innerCore * (0.28 + tone * 0.16 + speedLight * 0.14));
-          color = mix(color, uColorEnergy, innerCore * (0.08 + energy * 0.16 + speedLight * 0.06));
+          color = mix(color, accent, 0.18 + tone * 0.12 + energy * 0.1);
+          color = mix(color, uColorEnergy, smoothstep(0.32, 0.9, energy) * 0.46);
+          color = mix(color, uColorHalo, rim * (0.14 + tone * 0.1 + speedLight * 0.12));
+          color = mix(color, uColorHalo, innerCore * (0.36 + tone * 0.18 + speedLight * 0.18));
+          color = mix(color, uColorEnergy, innerCore * (0.12 + energy * 0.22 + speedLight * 0.1));
           color = mix(color, uColorVoid, smoothstep(0.42, 1.0, energy) * smoothstep(0.12, 0.0, dist) * 0.12);
           float alpha = body * vAlpha;
-          alpha += outerHalo * (0.05 + tone * 0.06 + energy * 0.04 + speedLight * 0.1) * vAlpha;
-          alpha += innerCore * (0.08 + energy * 0.06) * vAlpha;
-          alpha *= 0.86 + tone * 0.18 + energy * 0.12 + speedLight * 0.1;
+          alpha += outerHalo * (0.08 + tone * 0.08 + energy * 0.06 + speedLight * 0.14) * vAlpha;
+          alpha += innerCore * (0.12 + energy * 0.08 + speedLight * 0.04) * vAlpha;
+          alpha *= 0.9 + tone * 0.2 + energy * 0.16 + speedLight * 0.14;
           gl_FragColor = vec4(color, alpha);
         }
       `,
@@ -1749,7 +1749,7 @@ export class ParticleFieldRenderer {
       const hierarchyBoost = sizeClass < 0.24 ? 0.88 : sizeClass > 0.82 ? 1.08 : 1;
       const glowScale = lerp(0.42, 1.02, sizeClass);
       sizes[index] = baseSizes[index] * hierarchyBoost * this.pointScale * (1 + glow * glowScale);
-      alphas[index] = clamp(0.24 + glow * lerp(0.72, 0.9, sizeClass) + speedLight * 0.08, 0.14, 1);
+      alphas[index] = clamp(0.26 + glow * lerp(0.78, 0.96, sizeClass) + speedLight * 0.1, 0.16, 1);
       toneMixes[index] = clamp(tone, 0, 1);
       energies[index] = clamp(energy, 0, 1);
       speedLights[index] = speedLight;
@@ -2323,8 +2323,8 @@ export class ParticleFieldRenderer {
         outward.x * (0.012 + burstStrength * 0.014) + tangential.x * THREE.MathUtils.randFloatSpread(0.004);
       velocities[velocityIndex + 1] =
         outward.y * (0.012 + burstStrength * 0.014) + tangential.y * THREE.MathUtils.randFloatSpread(0.004);
-      sizes[index] = THREE.MathUtils.randFloat(4.8, 9.6) * this.overlayScale * (0.92 + burstStrength * 0.42);
-      alphas[index] = THREE.MathUtils.randFloat(0.64, 0.96);
+      sizes[index] = THREE.MathUtils.randFloat(5.6, 10.8) * this.overlayScale * (1 + burstStrength * 0.48);
+      alphas[index] = THREE.MathUtils.randFloat(0.78, 1);
       ages[index] = 0;
       lifetimes[index] = THREE.MathUtils.randFloat(0.18, 0.34);
       actives[index] = 1;
@@ -2353,7 +2353,7 @@ export class ParticleFieldRenderer {
     const center = this.dualImplosion.center;
     const mix = clamp((this.dualImplosion.paletteBias + 1) * 0.5, 0, 1);
     const biasWave = ION_CYAN.clone().lerp(ACCRETION_PINK, mix);
-    const flashColor = EVENT_GOLD.clone().lerp(HOT_HALO, 0.44).lerp(biasWave, 0.16);
+    const flashColor = EVENT_GOLD.clone().lerp(HOT_HALO, 0.58).lerp(biasWave, 0.12);
     const radius = Math.max(this.dualImplosion.radius, 0.14);
     const axisAngle = Math.atan2(this.dualImplosion.axis.y, this.dualImplosion.axis.x);
     const dualFxBoost = this.wireframeMode ? 1.2 : 1;
@@ -2367,33 +2367,33 @@ export class ParticleFieldRenderer {
 
     if (this.dualImplosion.phase === "gather") {
       const progress = clamp(this.dualImplosion.elapsed / 0.12, 0, 1);
-      opacity = 0.18 + progress * 0.16;
+      opacity = 0.24 + progress * 0.22;
       scaleValue = radius * (1.9 - progress * 0.45);
-      haloOpacity = (0.18 + progress * 0.14) * dualFxBoost;
+      haloOpacity = (0.24 + progress * 0.2) * dualFxBoost;
       haloScaleX = radius * lerp(2.2, 1.62, progress);
       haloScaleY = radius * lerp(1.28, 0.92, progress);
     } else if (this.dualImplosion.phase === "implode") {
       const progress = clamp(this.dualImplosion.elapsed / 0.16, 0, 1);
-      opacity = 0.28 + progress * 0.22;
+      opacity = 0.36 + progress * 0.28;
       scaleValue = radius * (1.46 - progress * 0.68);
-      haloOpacity = (0.24 + progress * 0.18) * dualFxBoost;
+      haloOpacity = (0.32 + progress * 0.24) * dualFxBoost;
       haloScaleX = radius * lerp(1.56, 0.92, progress);
       haloScaleY = radius * lerp(0.94, 0.54, progress);
     } else if (this.dualImplosion.phase === "release") {
       const progress = clamp(this.dualImplosion.elapsed / 0.2, 0, 1);
-      opacity = 0.46 - progress * 0.2;
+      opacity = 0.62 - progress * 0.22;
       scaleValue = radius * (0.54 + progress * (1.9 + this.dualImplosion.releaseBurstStrength * 0.7));
-      haloOpacity = (0.22 - progress * 0.2) * dualFxBoost;
+      haloOpacity = (0.34 - progress * 0.24) * dualFxBoost;
       haloScaleX = radius * (0.9 + progress * 0.82);
       haloScaleY = radius * (0.62 + progress * 0.46);
-      ringOpacity = (0.52 - progress * 0.34) * dualFxBoost;
+      ringOpacity = (0.68 - progress * 0.4) * dualFxBoost;
       ringScale = radius * (0.54 + progress * (2.4 + this.dualImplosion.releaseBurstStrength * 0.86));
     } else {
       const progress = clamp(this.dualImplosion.elapsed / 0.14, 0, 1);
-      opacity = (1 - progress) * 0.76;
+      opacity = (1 - progress) * 0.9;
       scaleValue = radius * (1.2 + progress * 2.8);
-      haloOpacity = (1 - progress) * 0.16 * dualFxBoost;
-      ringOpacity = (1 - progress) * 0.18 * dualFxBoost;
+      haloOpacity = (1 - progress) * 0.22 * dualFxBoost;
+      ringOpacity = (1 - progress) * 0.24 * dualFxBoost;
       ringScale = radius * (1.18 + progress * 1.2);
     }
 
