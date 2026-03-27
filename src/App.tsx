@@ -16,6 +16,7 @@ export default function App() {
     siteOnlyMode,
     centerLogoVisible,
     fullscreenVisible,
+    screenToggleHintVisible,
     wireframeMode,
     isFullscreen,
     helpOpen,
@@ -42,6 +43,16 @@ export default function App() {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(198,243,255,0.16),transparent_34%),radial-gradient(circle_at_bottom,rgba(248,62,165,0.16),transparent_30%)]" />
       ) : null}
 
+      {showHud ? (
+        <button
+          aria-label={wireframeMode ? "Volver a camara" : "Apagar camara"}
+          className="absolute inset-0 z-[12] cursor-pointer bg-transparent"
+          data-live-chrome-control="true"
+          onClick={toggleWireframeMode}
+          type="button"
+        />
+      ) : null}
+
       {showHud || showHint ? (
         <div
           className={`absolute inset-0 z-20 transition-opacity duration-300 ${
@@ -61,7 +72,7 @@ export default function App() {
 
           {showHint ? (
             <div className="pointer-events-none absolute inset-x-0 top-[22%] flex justify-center px-4">
-              <div className="rounded-full border border-white/15 bg-black/45 px-4 py-2 text-center text-sm text-white/82 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+              <div className="live-hint-pill rounded-full border border-white/15 bg-black/45 px-4 py-2 text-center text-sm text-white/82 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
                 {EXPERIENCE_COPY.liveHint}
               </div>
             </div>
@@ -71,14 +82,12 @@ export default function App() {
         </div>
       ) : null}
 
-      {centerLogoVisible ? (
-        <button
-          aria-label={wireframeMode ? "Volver a camara" : "Apagar camara"}
-          className="absolute inset-0 z-[15] cursor-pointer bg-transparent"
-          data-live-chrome-control="true"
-          onClick={toggleWireframeMode}
-          type="button"
-        />
+      {showHud && screenToggleHintVisible ? (
+        <div className="pointer-events-none absolute inset-0 z-[22] flex items-center justify-center px-6">
+          <div className="live-mode-toast max-w-md rounded-full border border-white/12 bg-black/42 px-4 py-2.5 text-center text-sm leading-6 text-white/86 shadow-[0_18px_45px_rgba(0,0,0,0.32)] backdrop-blur-xl sm:px-5">
+            {EXPERIENCE_COPY.wireframeHint}
+          </div>
+        </div>
       ) : null}
 
       {siteOnlyMode ? (

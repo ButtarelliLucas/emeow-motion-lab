@@ -123,6 +123,9 @@ export function useExperienceController() {
   const activityTimeoutRef = useRef(0);
   const centerLogoTimeoutRef = useRef(0);
   const fullscreenTimeoutRef = useRef(0);
+  const screenToggleHintShowTimeoutRef = useRef(0);
+  const screenToggleHintTimeoutRef = useRef(0);
+  const screenToggleHintShownRef = useRef(false);
   const lastHandDetectedAtRef = useRef<number | null>(null);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const phaseRef = useRef<ExperiencePhase>("intro");
@@ -136,6 +139,7 @@ export function useExperienceController() {
   const [chromeVisible, setChromeVisible] = useState(true);
   const [centerStageReady, setCenterStageReady] = useState(false);
   const [fullscreenReady, setFullscreenReady] = useState(false);
+  const [screenToggleHintVisible, setScreenToggleHintVisible] = useState(false);
   const [wireframeMode, setWireframeMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(() =>
     typeof document !== "undefined" ? Boolean(document.fullscreenElement) : false,
@@ -172,6 +176,22 @@ export function useExperienceController() {
     clearTimeoutRef(fullscreenTimeoutRef);
     setCenterStageReady(false);
     setFullscreenReady(false);
+  }, [clearTimeoutRef]);
+
+  const showScreenToggleHint = useCallback(() => {
+    if (screenToggleHintShownRef.current) {
+      return;
+    }
+
+    screenToggleHintShownRef.current = true;
+    clearTimeoutRef(screenToggleHintShowTimeoutRef);
+    clearTimeoutRef(screenToggleHintTimeoutRef);
+    screenToggleHintShowTimeoutRef.current = window.setTimeout(() => {
+      setScreenToggleHintVisible(true);
+      screenToggleHintTimeoutRef.current = window.setTimeout(() => {
+        setScreenToggleHintVisible(false);
+      }, 4800);
+    }, 320);
   }, [clearTimeoutRef]);
 
   const stageCenterVisuals = useCallback(() => {
@@ -357,12 +377,15 @@ export function useExperienceController() {
 
     clearTimeoutRef(handLatchTimeoutRef);
     clearTimeoutRef(activityTimeoutRef);
+    clearTimeoutRef(screenToggleHintShowTimeoutRef);
+    clearTimeoutRef(screenToggleHintTimeoutRef);
     lastHandDetectedAtRef.current = null;
     lastPointerRef.current = null;
     if (handPresenceLatchedRef.current) {
       handPresenceLatchedRef.current = false;
       setHandPresenceLatched(false);
     }
+    setScreenToggleHintVisible(false);
     showChrome();
     if (wireframeMode) {
       setWireframeMode(false);
@@ -382,6 +405,7 @@ export function useExperienceController() {
         handPresenceLatchedRef.current = true;
         setHandPresenceLatched(true);
         hideChrome();
+        showScreenToggleHint();
       }
 
       return;
@@ -403,7 +427,7 @@ export function useExperienceController() {
     return () => {
       clearTimeoutRef(handLatchTimeoutRef);
     };
-  }, [clearTimeoutRef, hideChrome, overlayStatus.handsDetected, phase, showChrome]);
+  }, [clearTimeoutRef, hideChrome, overlayStatus.handsDetected, phase, showChrome, showScreenToggleHint]);
 
   useEffect(() => {
     if (!isLiveChromePhase(phase) || !handPresenceLatched) {
@@ -450,10 +474,12 @@ export function useExperienceController() {
   useEffect(
     () => () => {
       clearTimeoutRef(handLatchTimeoutRef);
-      clearTimeoutRef(activityTimeoutRef);
-      clearTimeoutRef(centerLogoTimeoutRef);
-      clearTimeoutRef(fullscreenTimeoutRef);
-      trackerRef.current?.destroy();
+        clearTimeoutRef(activityTimeoutRef);
+        clearTimeoutRef(centerLogoTimeoutRef);
+        clearTimeoutRef(fullscreenTimeoutRef);
+        clearTimeoutRef(screenToggleHintShowTimeoutRef);
+        clearTimeoutRef(screenToggleHintTimeoutRef);
+        trackerRef.current?.destroy();
       streamRef.current?.getTracks().forEach((track) => track.stop());
     },
     [clearTimeoutRef],
@@ -474,10 +500,13 @@ export function useExperienceController() {
     clearTimeoutRef(activityTimeoutRef);
     clearTimeoutRef(centerLogoTimeoutRef);
     clearTimeoutRef(fullscreenTimeoutRef);
+    clearTimeoutRef(screenToggleHintShowTimeoutRef);
+    clearTimeoutRef(screenToggleHintTimeoutRef);
     lastHandDetectedAtRef.current = null;
     lastPointerRef.current = null;
     handPresenceLatchedRef.current = false;
     setHandPresenceLatched(false);
+    setScreenToggleHintVisible(false);
     showChrome();
     setWireframeMode(false);
     rendererRef.current?.setWireframeMode(false);
@@ -648,6 +677,7 @@ export function useExperienceController() {
     siteOnlyMode,
     centerLogoVisible,
     fullscreenVisible,
+    screenToggleHintVisible,
     wireframeMode,
     isFullscreen,
     startExperience,

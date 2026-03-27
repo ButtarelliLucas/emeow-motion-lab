@@ -147,6 +147,61 @@ video {
   }
 }
 
+@keyframes live-hint-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes live-hint-breathe {
+  0%,
+  100% {
+    opacity: 0.78;
+    transform: translateY(0) scale(1);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.018);
+    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.36);
+  }
+}
+
+@keyframes live-mode-toast {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+
+  12%,
+  78% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+
+.live-hint-pill {
+  animation:
+    live-hint-enter 0.42s cubic-bezier(0.22, 1, 0.36, 1) both,
+    live-hint-breathe 2.8s ease-in-out 0.42s infinite;
+}
+
+.live-mode-toast {
+  animation: live-mode-toast 4.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

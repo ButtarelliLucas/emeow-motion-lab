@@ -5,6 +5,7 @@ export const EXPERIENCE_COPY = {
   headline: "Activa la camara para entrar en una escena cosmica eterea: tus manos deforman, atraen y expanden el flujo visual.",
   permission: "Para disfrutar la experiencia hace falta permitir el uso de la camara.",
   liveHint: "Usa tus manos dentro de la camara para deformar el flujo.",
+  wireframeHint: "Toca o haz click en cualquier parte para entrar o salir del modo sin camara.",
   landscapeHint: "Se disfruta mejor en vertical, pero sigue funcionando en desktop y landscape.",
   help: [
     "Cerrar la mano atrae particulas con un radio grande hacia la palma.",
