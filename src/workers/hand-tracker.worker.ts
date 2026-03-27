@@ -7,6 +7,15 @@ import type { WorkerRequest, WorkerResponse } from "@/lib/hand-tracking/worker-p
 
 declare const self: DedicatedWorkerGlobalScope;
 
+type WorkerImportGlobal = DedicatedWorkerGlobalScope & {
+  import?: (url: string) => Promise<unknown>;
+};
+
+// MediaPipe's wasm loader falls back to `self.import(...)` in module workers.
+// Some mobile browsers expose module workers but do not provide that helper.
+const workerGlobal = self as WorkerImportGlobal;
+workerGlobal.import ??= (url: string) => import(/* @vite-ignore */ url);
+
 let landmarker: HandLandmarker | null = null;
 let engine: TrackingStateEngine | null = null;
 let paused = false;
