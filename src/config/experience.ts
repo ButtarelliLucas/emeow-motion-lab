@@ -45,30 +45,6 @@ export const EXPERIENCE_CONFIG: ExperienceConfig = {
   defaultMetrics: DEFAULT_METRICS,
 };
 
-export function getCameraConstraints({
-  mobile,
-  qualityTier,
-}: {
-  mobile: boolean;
-  qualityTier: QualityTier;
-}): MediaStreamConstraints {
-  if (!mobile) {
-    return EXPERIENCE_CONFIG.cameraConstraints;
-  }
-
-  const idealWidth = qualityTier === "low" ? 848 : 960;
-  const idealHeight = qualityTier === "low" ? 480 : 540;
-
-  return {
-    audio: false,
-    video: {
-      facingMode: "user",
-      width: { ideal: idealWidth },
-      height: { ideal: idealHeight },
-    },
-  };
-}
-
 const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
   low: {
     dprCap: 1.25,

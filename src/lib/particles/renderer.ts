@@ -1403,26 +1403,7 @@ export class ParticleFieldRenderer {
       const coreColor = overlayPalette.coreColor;
       const trailColor = overlayPalette.trailColor;
 
-      if (this.wireframeMode) {
-        HAND_CONNECTIONS.forEach(([from, to], connectionIndex) => {
-          const start = hand.landmarks[from] ?? hand.palm;
-          const end = hand.landmarks[to] ?? hand.palm;
-          const positionIndex = connectionIndex * 6;
-          wireframe.positions[positionIndex] = start.x;
-          wireframe.positions[positionIndex + 1] = start.y;
-          wireframe.positions[positionIndex + 2] = 0.01;
-          wireframe.positions[positionIndex + 3] = end.x;
-          wireframe.positions[positionIndex + 4] = end.y;
-          wireframe.positions[positionIndex + 5] = 0.01;
-        });
-        const wireframeMaterial = wireframe.line.material;
-        wireframeMaterial.color.copy(overlayPalette.secondaryColor.clone().lerp(overlayPalette.biasColor, 0.42));
-        wireframeMaterial.opacity = hand.presence * (0.1 + gestureEnergy * 0.06 + glowBreath * 0.02);
-        wireframe.line.geometry.attributes.position.needsUpdate = true;
-        wireframe.line.visible = hand.presence > 0.01;
-      } else {
-        wireframe.line.visible = false;
-      }
+      wireframe.line.visible = false;
       const ringWidth =
         Math.max(hand.ellipseRadiusX * 2.16 * (1 + hand.attractionAmount * 0.05 + hand.openAmount * 0.02), 0.16) *
         pulse *
