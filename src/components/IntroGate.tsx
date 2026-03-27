@@ -24,7 +24,7 @@ export function IntroGate({ phase, onStart }: IntroGateProps) {
   const status = statusCopy(phase);
 
   return (
-    <section className="absolute inset-0 flex items-end justify-center px-4 pb-8 pt-16 sm:px-6 sm:items-center sm:pb-6">
+    <section className="absolute inset-0 flex items-end justify-center px-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] pt-[calc(env(safe-area-inset-top,0px)+4rem)] sm:px-6 sm:items-center sm:pb-6 sm:pt-16">
       <div className="glass-panel relative w-full max-w-xl rounded-[2rem] px-5 pb-16 pt-6 sm:px-8 sm:pb-16 sm:pt-8">
         <div className="mb-6 flex items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center">

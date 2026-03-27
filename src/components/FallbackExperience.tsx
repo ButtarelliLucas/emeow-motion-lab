@@ -20,7 +20,7 @@ function titleForPhase(phase: ExperiencePhase) {
 
 export function FallbackExperience({ phase, errorMessage, onRetry, onVisualMode }: FallbackExperienceProps) {
   return (
-    <section className="absolute inset-0 flex items-end justify-center px-4 pb-5 pt-16 sm:px-6 sm:items-center sm:pb-6">
+    <section className="absolute inset-0 flex items-end justify-center px-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] pt-[calc(env(safe-area-inset-top,0px)+4rem)] sm:px-6 sm:items-center sm:pb-6 sm:pt-16">
       <div className="glass-panel w-full max-w-lg rounded-[2rem] px-5 py-6 sm:px-7">
         <p className="text-xs font-semibold uppercase tracking-[0.32em] text-foreground-muted">Fallback guiado</p>
         <h2 className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-foreground">{titleForPhase(phase)}</h2>

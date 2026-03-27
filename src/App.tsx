@@ -37,7 +37,7 @@ export default function App() {
   const cameraOpacity = showFallback || showIntro || wireframeMode ? 0 : 0.55;
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
+    <main className="app-viewport relative overflow-hidden bg-background text-foreground">
       <ExperienceViewport cameraOpacity={cameraOpacity} canvasRef={canvasRef} videoRef={videoRef} wireframeMode={wireframeMode} />
       {!wireframeMode ? (
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(198,243,255,0.16),transparent_34%),radial-gradient(circle_at_bottom,rgba(248,62,165,0.16),transparent_30%)]" />
