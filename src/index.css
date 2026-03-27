@@ -122,6 +122,31 @@ video {
     radial-gradient(circle at 50% 100%, rgba(166, 214, 255, 0.08), transparent 32%);
 }
 
+@keyframes emeow-logo-spin-x {
+  0% {
+    transform: rotateX(0deg) scale(0.98);
+  }
+
+  50% {
+    transform: rotateX(180deg) scale(1.02);
+  }
+
+  100% {
+    transform: rotateX(360deg) scale(0.98);
+  }
+}
+
+@keyframes emeow-logo-breathe {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 18px rgba(127, 235, 255, 0.18));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 28px rgba(248, 62, 165, 0.24));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

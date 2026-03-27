@@ -45,20 +45,57 @@ function createClosedFist() {
   return landmarks;
 }
 
-function createRolledHand(direction: "left" | "right") {
+function createPartiallyClosedHand() {
   const landmarks = createOpenHand();
-  const shift = direction === "right" ? -0.16 : 0.16;
-  landmarks[8] = { ...landmarks[8], x: landmarks[8].x + shift * 0.7 };
-  landmarks[12] = { ...landmarks[12], x: landmarks[12].x + shift };
-  landmarks[16] = { ...landmarks[16], x: landmarks[16].x + shift * 0.7 };
-  landmarks[20] = { ...landmarks[20], x: landmarks[20].x + shift * 0.35 };
+  landmarks[4] = { x: 0.28, y: 0.5, z: -0.03 };
+  landmarks[8] = { x: 0.39, y: 0.31, z: -0.05 };
+  landmarks[12] = { x: 0.5, y: 0.27, z: -0.06 };
+  landmarks[16] = { x: 0.61, y: 0.33, z: 0.05 };
+  landmarks[20] = { x: 0.71, y: 0.45, z: 0.08 };
+  return landmarks;
+}
+
+function createModeratelyOpenHand() {
+  const landmarks = createOpenHand();
+  landmarks[4] = { x: 0.27, y: 0.47, z: -0.03 };
+  landmarks[8] = { x: 0.38, y: 0.22, z: -0.07 };
+  landmarks[12] = { x: 0.5, y: 0.18, z: -0.07 };
+  landmarks[16] = { x: 0.61, y: 0.24, z: 0.06 };
+  landmarks[20] = { x: 0.73, y: 0.34, z: 0.09 };
   return landmarks;
 }
 
 function createSideTiltedHand() {
   const landmarks = createOpenHand();
+  landmarks[4] = { x: 0.39, y: 0.46, z: -0.05 };
   landmarks[5] = { ...landmarks[5], z: -0.28 };
+  landmarks[5] = { ...landmarks[5], x: 0.47 };
+  landmarks[8] = { ...landmarks[8], x: 0.46 };
+  landmarks[9] = { ...landmarks[9], x: 0.51 };
+  landmarks[12] = { ...landmarks[12], x: 0.5 };
+  landmarks[13] = { ...landmarks[13], x: 0.55 };
+  landmarks[16] = { ...landmarks[16], x: 0.55 };
   landmarks[17] = { ...landmarks[17], z: 0.28 };
+  landmarks[17] = { ...landmarks[17], x: 0.58 };
+  landmarks[20] = { ...landmarks[20], x: 0.59 };
+  return landmarks;
+}
+
+function createClockwiseEllipticHand() {
+  const landmarks = createOpenHand();
+  landmarks[5] = { ...landmarks[5], y: 0.48 };
+  landmarks[9] = { ...landmarks[9], y: 0.54 };
+  landmarks[13] = { ...landmarks[13], y: 0.63 };
+  landmarks[17] = { ...landmarks[17], y: 0.69 };
+  return landmarks;
+}
+
+function createCounterClockwiseEllipticHand() {
+  const landmarks = createOpenHand();
+  landmarks[5] = { ...landmarks[5], y: 0.68 };
+  landmarks[9] = { ...landmarks[9], y: 0.61 };
+  landmarks[13] = { ...landmarks[13], y: 0.53 };
+  landmarks[17] = { ...landmarks[17], y: 0.48 };
   return landmarks;
 }
 
@@ -69,6 +106,7 @@ describe("measureHand", () => {
     expect(result.gesture).toBe("openPalm");
     expect(result.openAmount).toBeGreaterThan(0.76);
     expect(result.closure).toBeLessThan(0.3);
+    expect(result.repulsionAmount).toBeGreaterThan(0.75);
   });
 
   it("detects a closed fist and exposes closure", () => {
@@ -90,14 +128,36 @@ describe("measureHand", () => {
     expect(result.closure).toBeGreaterThan(0.56);
   });
 
-  it("maps clockwise and counter-clockwise roll into opposite palette bias", () => {
-    const right = measureHand(createRolledHand("right"), false, THRESHOLDS, 0.9);
-    const left = measureHand(createRolledHand("left"), false, THRESHOLDS, 0.9);
+  it("starts attraction before a fully classified fist", () => {
+    const result = measureHand(createPartiallyClosedHand(), false, THRESHOLDS, 0.85);
 
-    expect(right.rollAngle).toBeGreaterThan(0);
-    expect(right.paletteBias).toBeGreaterThan(0);
-    expect(left.rollAngle).toBeLessThan(0);
-    expect(left.paletteBias).toBeLessThan(0);
+    expect(result.attractionAmount).toBeGreaterThan(0);
+    expect(result.gesture).not.toBe("closedFist");
+  });
+
+  it("starts repulsion before a fully open hand", () => {
+    const result = measureHand(createModeratelyOpenHand(), false, THRESHOLDS, 0.85);
+
+    expect(result.repulsionAmount).toBeGreaterThan(0.12);
+  });
+
+  it("maps clockwise and counter-clockwise roll into opposite palette bias", () => {
+    const right = measureHand(createClockwiseEllipticHand(), false, THRESHOLDS, 0.9);
+    const left = measureHand(createCounterClockwiseEllipticHand(), false, THRESHOLDS, 0.9);
+
+    expect(Math.abs(right.rollAngle - left.rollAngle)).toBeGreaterThan(0.04);
+    expect(Math.abs(right.paletteBias - left.paletteBias)).toBeGreaterThan(0.04);
+    expect(Math.abs(right.rollAngle)).toBeGreaterThan(0.04);
+    expect(Math.abs(left.rollAngle)).toBeGreaterThan(0.04);
+  });
+
+  it("changes ellipse angle with clockwise and counter-clockwise hand poses", () => {
+    const clockwise = measureHand(createClockwiseEllipticHand(), false, THRESHOLDS, 0.9);
+    const counterClockwise = measureHand(createCounterClockwiseEllipticHand(), false, THRESHOLDS, 0.9);
+
+    expect(Math.sign(clockwise.ellipseAngle)).not.toBe(Math.sign(counterClockwise.ellipseAngle));
+    expect(Math.abs(clockwise.ellipseAngle)).toBeGreaterThan(0.08);
+    expect(Math.abs(counterClockwise.ellipseAngle)).toBeGreaterThan(0.08);
   });
 
   it("reduces sideTilt when the palm turns sideways", () => {
@@ -106,5 +166,6 @@ describe("measureHand", () => {
 
     expect(front.sideTilt).toBeGreaterThan(side.sideTilt);
     expect(front.sideTilt).toBeGreaterThan(0.6);
+    expect(front.ellipseRadiusX).toBeGreaterThan(side.ellipseRadiusX);
   });
 });

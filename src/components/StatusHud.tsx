@@ -112,7 +112,8 @@ export function StatusHud({
               Recalibrar
             </button>
             <button
-              className="focus-ring min-h-12 rounded-full border border-white/12 bg-white/6 px-4 py-3 text-sm font-medium text-foreground transition hover:bg-white/10"
+              className="focus-ring min-h-12 rounded-full px-2 py-3 text-sm font-medium tracking-[0.12em] text-foreground/84 transition hover:text-foreground hover:underline hover:underline-offset-4"
+              data-live-chrome-control="true"
               onClick={onGoHome}
               type="button"
             >

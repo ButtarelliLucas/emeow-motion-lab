@@ -1,5 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { DEFAULT_METRICS, EXPERIENCE_CONFIG } from "@/config/experience";
+import {
+  LIVE_CHROME_FULLSCREEN_DELAY_MS,
+  LIVE_CHROME_HAND_LATCH_MS,
+  LIVE_CHROME_INACTIVITY_MS,
+  LIVE_CHROME_LOGO_DELAY_MS,
+  getLiveChromeFlags,
+  isLiveChromePhase,
+  isMeaningfulPointerMove,
+} from "@/lib/live-chrome";
 import { detectInitialQualityTier } from "@/lib/quality";
 import { ParticleFieldRenderer } from "@/lib/particles/renderer";
 import { createViewportMapping } from "@/lib/viewport-mapping";
@@ -99,6 +108,10 @@ function syncViewportMapping(
   tracker?.setViewportMapping(mapping);
 }
 
+function isChromeControlTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest("[data-live-chrome-control='true']"));
+}
+
 export function useExperienceController() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -106,10 +119,27 @@ export function useExperienceController() {
   const trackerRef = useRef<HandTrackerController | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const metricsRef = useRef(DEFAULT_METRICS);
+  const handLatchTimeoutRef = useRef(0);
+  const activityTimeoutRef = useRef(0);
+  const centerLogoTimeoutRef = useRef(0);
+  const fullscreenTimeoutRef = useRef(0);
+  const lastHandDetectedAtRef = useRef<number | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const phaseRef = useRef<ExperiencePhase>("intro");
+  const handPresenceLatchedRef = useRef(false);
   const reducedMotion =
     typeof window !== "undefined" ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false;
+  const fullscreenSupported = typeof document !== "undefined" ? document.fullscreenEnabled : false;
   const [phase, setPhase] = useState<ExperiencePhase>("intro");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [handPresenceLatched, setHandPresenceLatched] = useState(false);
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const [centerStageReady, setCenterStageReady] = useState(false);
+  const [fullscreenReady, setFullscreenReady] = useState(false);
+  const [wireframeMode, setWireframeMode] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(() =>
+    typeof document !== "undefined" ? Boolean(document.fullscreenElement) : false,
+  );
   const [qualityTier, setQualityTier] = useState<QualityTier>(() =>
     detectInitialQualityTier({
       reducedMotion,
@@ -129,6 +159,63 @@ export function useExperienceController() {
     metrics: DEFAULT_METRICS,
     errorMessage: null,
   });
+
+  const clearTimeoutRef = useCallback((timeoutRef: MutableRefObject<number>) => {
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = 0;
+    }
+  }, []);
+
+  const hideCenterStage = useCallback(() => {
+    clearTimeoutRef(centerLogoTimeoutRef);
+    clearTimeoutRef(fullscreenTimeoutRef);
+    setCenterStageReady(false);
+    setFullscreenReady(false);
+  }, [clearTimeoutRef]);
+
+  const stageCenterVisuals = useCallback(() => {
+    hideCenterStage();
+    centerLogoTimeoutRef.current = window.setTimeout(() => {
+      setCenterStageReady(true);
+    }, LIVE_CHROME_LOGO_DELAY_MS);
+
+    if (fullscreenSupported) {
+      fullscreenTimeoutRef.current = window.setTimeout(() => {
+        setFullscreenReady(true);
+      }, LIVE_CHROME_FULLSCREEN_DELAY_MS);
+    }
+  }, [fullscreenSupported, hideCenterStage]);
+
+  const hideChrome = useCallback(() => {
+    if (!isLiveChromePhase(phaseRef.current) || !handPresenceLatchedRef.current) {
+      return;
+    }
+
+    setHelpOpen(false);
+    setChromeVisible(false);
+    stageCenterVisuals();
+    clearTimeoutRef(activityTimeoutRef);
+  }, [clearTimeoutRef, stageCenterVisuals]);
+
+  const showChrome = useCallback(() => {
+    setChromeVisible(true);
+    hideCenterStage();
+  }, [hideCenterStage]);
+
+  const scheduleChromeAutoHide = useCallback(() => {
+    clearTimeoutRef(activityTimeoutRef);
+
+    if (!isLiveChromePhase(phaseRef.current) || !handPresenceLatchedRef.current) {
+      return;
+    }
+
+    activityTimeoutRef.current = window.setTimeout(() => {
+      if (isLiveChromePhase(phaseRef.current) && handPresenceLatchedRef.current) {
+        hideChrome();
+      }
+    }, LIVE_CHROME_INACTIVITY_MS);
+  }, [clearTimeoutRef, hideChrome]);
 
   const setMetrics = (nextFrameMs?: number, nextTrackingMs?: number) => {
     metricsRef.current = {
@@ -217,6 +304,33 @@ export function useExperienceController() {
   }, [qualityTier]);
 
   useEffect(() => {
+    rendererRef.current?.setWireframeMode(wireframeMode);
+  }, [wireframeMode]);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    handPresenceLatchedRef.current = handPresenceLatched;
+  }, [handPresenceLatched]);
+
+  useEffect(() => {
+    if (!fullscreenSupported) {
+      return undefined;
+    }
+
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, [fullscreenSupported]);
+
+  useEffect(() => {
     const onVisibility = () => {
       const paused = document.hidden;
       rendererRef.current?.setPaused(paused);
@@ -236,12 +350,113 @@ export function useExperienceController() {
     }));
   }, [phase]);
 
+  useEffect(() => {
+    if (isLiveChromePhase(phase)) {
+      return;
+    }
+
+    clearTimeoutRef(handLatchTimeoutRef);
+    clearTimeoutRef(activityTimeoutRef);
+    lastHandDetectedAtRef.current = null;
+    lastPointerRef.current = null;
+    if (handPresenceLatchedRef.current) {
+      handPresenceLatchedRef.current = false;
+      setHandPresenceLatched(false);
+    }
+    showChrome();
+    if (wireframeMode) {
+      setWireframeMode(false);
+    }
+  }, [clearTimeoutRef, phase, showChrome, wireframeMode]);
+
+  useEffect(() => {
+    if (!isLiveChromePhase(phase)) {
+      return;
+    }
+
+    if (overlayStatus.handsDetected) {
+      lastHandDetectedAtRef.current = performance.now();
+      clearTimeoutRef(handLatchTimeoutRef);
+
+      if (!handPresenceLatchedRef.current) {
+        handPresenceLatchedRef.current = true;
+        setHandPresenceLatched(true);
+        hideChrome();
+      }
+
+      return;
+    }
+
+    clearTimeoutRef(handLatchTimeoutRef);
+    if (!handPresenceLatchedRef.current) {
+      return;
+    }
+
+    handLatchTimeoutRef.current = window.setTimeout(() => {
+      if (!overlayStatus.handsDetected) {
+        handPresenceLatchedRef.current = false;
+        setHandPresenceLatched(false);
+        showChrome();
+      }
+    }, LIVE_CHROME_HAND_LATCH_MS);
+
+    return () => {
+      clearTimeoutRef(handLatchTimeoutRef);
+    };
+  }, [clearTimeoutRef, hideChrome, overlayStatus.handsDetected, phase, showChrome]);
+
+  useEffect(() => {
+    if (!isLiveChromePhase(phase) || !handPresenceLatched) {
+      lastPointerRef.current = null;
+      clearTimeoutRef(activityTimeoutRef);
+      return;
+    }
+
+    const revealChrome = () => {
+      showChrome();
+      scheduleChromeAutoHide();
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const nextPoint = { x: event.clientX, y: event.clientY };
+      const meaningful = isMeaningfulPointerMove(lastPointerRef.current, nextPoint);
+      lastPointerRef.current = nextPoint;
+
+      if (meaningful) {
+        revealChrome();
+      }
+    };
+
+    const onTouchActivity = (event: TouchEvent) => {
+      if (isChromeControlTarget(event.target)) {
+        return;
+      }
+
+      lastPointerRef.current = null;
+      revealChrome();
+    };
+
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("touchstart", onTouchActivity, { passive: true });
+    window.addEventListener("touchmove", onTouchActivity, { passive: true });
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("touchstart", onTouchActivity);
+      window.removeEventListener("touchmove", onTouchActivity);
+    };
+  }, [clearTimeoutRef, handPresenceLatched, phase, scheduleChromeAutoHide, showChrome]);
+
   useEffect(
     () => () => {
+      clearTimeoutRef(handLatchTimeoutRef);
+      clearTimeoutRef(activityTimeoutRef);
+      clearTimeoutRef(centerLogoTimeoutRef);
+      clearTimeoutRef(fullscreenTimeoutRef);
       trackerRef.current?.destroy();
       streamRef.current?.getTracks().forEach((track) => track.stop());
     },
-    [],
+    [clearTimeoutRef],
   );
 
   const cleanupCamera = () => {
@@ -255,6 +470,18 @@ export function useExperienceController() {
       videoRef.current.srcObject = null;
     }
 
+    clearTimeoutRef(handLatchTimeoutRef);
+    clearTimeoutRef(activityTimeoutRef);
+    clearTimeoutRef(centerLogoTimeoutRef);
+    clearTimeoutRef(fullscreenTimeoutRef);
+    lastHandDetectedAtRef.current = null;
+    lastPointerRef.current = null;
+    handPresenceLatchedRef.current = false;
+    setHandPresenceLatched(false);
+    showChrome();
+    setWireframeMode(false);
+    rendererRef.current?.setWireframeMode(false);
+
     rendererRef.current?.setInteraction({
       hands: [],
       handsDetected: false,
@@ -263,6 +490,8 @@ export function useExperienceController() {
       paletteBias: 0,
       dualDistance: 0,
       dualCloseness: 0,
+      dualDepthDelta: 0,
+      dualDepthAmount: 0,
       lastUpdated: performance.now(),
     });
   };
@@ -378,6 +607,36 @@ export function useExperienceController() {
     setPhase("calibrating");
   };
 
+  const toggleWireframeMode = () => {
+    if (!isLiveChromePhase(phaseRef.current)) {
+      return;
+    }
+
+    setWireframeMode((current) => !current);
+  };
+
+  const toggleFullscreen = async () => {
+    if (!fullscreenSupported) {
+      return;
+    }
+
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+
+    await document.documentElement.requestFullscreen();
+  };
+
+  const { siteOnlyMode, centerLogoVisible, fullscreenVisible } = getLiveChromeFlags({
+    phase,
+    handPresenceLatched,
+    chromeVisible,
+    centerStageReady,
+    fullscreenReady,
+    fullscreenSupported,
+  });
+
   return {
     videoRef,
     canvasRef,
@@ -385,9 +644,17 @@ export function useExperienceController() {
     helpOpen,
     setHelpOpen,
     overlayStatus,
+    chromeVisible,
+    siteOnlyMode,
+    centerLogoVisible,
+    fullscreenVisible,
+    wireframeMode,
+    isFullscreen,
     startExperience,
     retryExperience,
     enterFallback,
     resetTracking,
+    toggleWireframeMode,
+    toggleFullscreen,
   };
 }

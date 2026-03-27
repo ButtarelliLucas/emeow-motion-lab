@@ -7,7 +7,9 @@ import {
 } from "@mediapipe/tasks-vision";
 import { EXPERIENCE_CONFIG, getQualityProfile } from "@/config/experience";
 import { assetUrl } from "@/lib/assets";
+import { computeDualDepthDelta, computeProjectedScale } from "@/lib/hand-tracking/depth";
 import { measureHand } from "@/lib/hand-tracking/gestures";
+import { nextGestureImpulse } from "@/lib/hand-tracking/impulses";
 import { clamp, distance, lerp, lerpVec2, length } from "@/lib/math";
 import { createViewportMapping, mapNormalizedPointToScene } from "@/lib/viewport-mapping";
 import type {
@@ -32,9 +34,12 @@ interface TrackerOptions {
 
 interface InternalHandState extends HandVisualState {
   rawPalm: Vec2;
+  rawLandmarks: Vec2[];
   rawFingertips: Vec2[];
   rawPinchPoint: Vec2;
   rawTrail: Vec2[];
+  rawOpenAmount: number;
+  rawClosure: number;
   lastSeenAt: number;
 }
 
@@ -53,6 +58,20 @@ function handednessKey(handedness: Category[][], index: number) {
 
 function smoothingAlpha(moving: boolean, stillAlpha: number, movingAlpha: number) {
   return moving ? movingAlpha : stillAlpha;
+}
+
+function lerpAngle(start: number, end: number, alpha: number) {
+  let delta = end - start;
+
+  while (delta > Math.PI) {
+    delta -= Math.PI * 2;
+  }
+
+  while (delta < -Math.PI) {
+    delta += Math.PI * 2;
+  }
+
+  return start + delta * alpha;
 }
 
 function defaultViewportMapping() {
@@ -122,15 +141,20 @@ export class HandTrackerController {
   }
 
   setViewportMapping(mapping: ViewportMapping) {
+    const previousMapping = this.viewportMapping;
+    const horizontalScale = mapping.sceneHalfWidth / Math.max(previousMapping.sceneHalfWidth, 0.0001);
     this.viewportMapping = mapping;
 
     this.hands.forEach((hand, key) => {
       this.hands.set(key, {
         ...hand,
         palm: mapNormalizedPointToScene(hand.rawPalm, mapping),
+        landmarks: hand.rawLandmarks.map((point) => mapNormalizedPointToScene(point, mapping)),
         fingertips: hand.rawFingertips.map((tip) => mapNormalizedPointToScene(tip, mapping)),
         pinchPoint: mapNormalizedPointToScene(hand.rawPinchPoint, mapping),
         trail: hand.rawTrail.map((point) => mapNormalizedPointToScene(point, mapping)),
+        ellipseRadiusX: hand.ellipseRadiusX * horizontalScale,
+        ellipseRadiusY: hand.ellipseRadiusY,
       });
     });
   }
@@ -180,6 +204,8 @@ export class HandTrackerController {
       paletteBias: 0,
       dualDistance: 0,
       dualCloseness: 0,
+      dualDepthDelta: 0,
+      dualDepthAmount: 0,
       lastUpdated: performance.now(),
     });
   }
@@ -271,6 +297,18 @@ export class HandTrackerController {
         confidence,
       );
       const elapsedSeconds = Math.max(0.016, (now - (previous?.lastSeenAt ?? now - 16)) / 1000);
+      const openImpulseTarget = nextGestureImpulse(
+        previous?.openImpulseAmount ?? 0,
+        measured.openAmount,
+        previous?.rawOpenAmount ?? measured.openAmount,
+        elapsedSeconds,
+      );
+      const closingImpulseTarget = nextGestureImpulse(
+        previous?.closingImpulseAmount ?? 0,
+        measured.closure,
+        previous?.rawClosure ?? measured.closure,
+        elapsedSeconds,
+      );
       const rawVelocity = previous
         ? {
             x: (measured.palm.x - previous.rawPalm.x) / elapsedSeconds,
@@ -283,6 +321,15 @@ export class HandTrackerController {
       const rawPalm = previous
         ? lerpVec2(previous.rawPalm, measured.palm, smoothingAlpha(moving, 0.42, 0.62))
         : measured.palm;
+      const rawLandmarks = landmarks.map((point, landmarkIndex) =>
+        previous?.rawLandmarks[landmarkIndex]
+          ? lerpVec2(
+              previous.rawLandmarks[landmarkIndex],
+              { x: point.x, y: point.y },
+              smoothingAlpha(moving, 0.32, 0.52),
+            )
+          : { x: point.x, y: point.y },
+      );
       const rawFingertips = measured.fingertips.map((tip, fingertipIndex) =>
         previous?.rawFingertips[fingertipIndex]
           ? lerpVec2(previous.rawFingertips[fingertipIndex], tip, smoothingAlpha(moving, 0.38, 0.58))
@@ -292,8 +339,27 @@ export class HandTrackerController {
         ? lerpVec2(previous.rawPinchPoint, measured.pinchPoint, smoothingAlpha(moving, 0.4, 0.64))
         : measured.pinchPoint;
       const palm = mapNormalizedPointToScene(rawPalm, this.viewportMapping);
+      const sceneLandmarks = rawLandmarks.map((point) => mapNormalizedPointToScene(point, this.viewportMapping));
       const fingertips = rawFingertips.map((tip) => mapNormalizedPointToScene(tip, this.viewportMapping));
       const pinchPoint = mapNormalizedPointToScene(rawPinchPoint, this.viewportMapping);
+      const ellipseXAnchor = mapNormalizedPointToScene(
+        {
+          x: rawPalm.x + measured.ellipseAxisX.x * measured.ellipseRadiusX,
+          y: rawPalm.y + measured.ellipseAxisX.y * measured.ellipseRadiusX,
+        },
+        this.viewportMapping,
+      );
+      const ellipseYAnchor = mapNormalizedPointToScene(
+        {
+          x: rawPalm.x + measured.ellipseAxisY.x * measured.ellipseRadiusY,
+          y: rawPalm.y + measured.ellipseAxisY.y * measured.ellipseRadiusY,
+        },
+        this.viewportMapping,
+      );
+      const ellipseRadiusXTarget = Math.max(0.06, distance(ellipseXAnchor, palm));
+      const ellipseRadiusYTarget = Math.max(0.08, distance(ellipseYAnchor, palm));
+      const ellipseAngleTarget = Math.atan2(ellipseXAnchor.y - palm.y, ellipseXAnchor.x - palm.x);
+      const projectedScaleTarget = computeProjectedScale(ellipseRadiusXTarget, ellipseRadiusYTarget);
       const velocity = previous
         ? {
             x: (palm.x - previous.palm.x) / elapsedSeconds,
@@ -309,6 +375,7 @@ export class HandTrackerController {
         id: key,
         confidence: lerp(previous?.confidence ?? confidence, confidence, 0.3),
         palm,
+        landmarks: sceneLandmarks,
         fingertips,
         pinchPoint,
         radius: lerp(previous?.radius ?? radiusTarget, radiusTarget, 0.36),
@@ -319,15 +386,36 @@ export class HandTrackerController {
         rollAngle: lerp(previous?.rollAngle ?? measured.rollAngle, measured.rollAngle, 0.28),
         sideTilt: lerp(previous?.sideTilt ?? measured.sideTilt, measured.sideTilt, 0.26),
         paletteBias: lerp(previous?.paletteBias ?? measured.paletteBias, measured.paletteBias, 0.24),
+        ellipseAngle: previous
+          ? lerpAngle(previous.ellipseAngle, ellipseAngleTarget, smoothingAlpha(moving, 0.24, 0.4))
+          : ellipseAngleTarget,
+        ellipseRadiusX: lerp(previous?.ellipseRadiusX ?? ellipseRadiusXTarget, ellipseRadiusXTarget, smoothingAlpha(moving, 0.24, 0.42)),
+        ellipseRadiusY: lerp(previous?.ellipseRadiusY ?? ellipseRadiusYTarget, ellipseRadiusYTarget, smoothingAlpha(moving, 0.24, 0.42)),
+        projectedScale: lerp(previous?.projectedScale ?? projectedScaleTarget, projectedScaleTarget, smoothingAlpha(moving, 0.24, 0.42)),
+        attractionAmount: lerp(
+          previous?.attractionAmount ?? measured.attractionAmount,
+          measured.attractionAmount,
+          smoothingAlpha(moving, 0.22, 0.4),
+        ),
+        repulsionAmount: lerp(
+          previous?.repulsionAmount ?? measured.repulsionAmount,
+          measured.repulsionAmount,
+          smoothingAlpha(moving, 0.22, 0.4),
+        ),
+        openImpulseAmount: openImpulseTarget,
+        closingImpulseAmount: closingImpulseTarget,
         speed: rawSpeed,
         gesture,
         trail,
         velocity,
         presence: 1,
         rawPalm,
+        rawLandmarks,
         rawFingertips,
         rawPinchPoint,
         rawTrail,
+        rawOpenAmount: measured.openAmount,
+        rawClosure: measured.closure,
         lastSeenAt: now,
       });
     });
@@ -368,6 +456,10 @@ export class HandTrackerController {
     const paletteBias = dualActive
       ? clamp((activeHands[1].palm.y - activeHands[0].palm.y) / 0.65, -1, 1)
       : activeHands[0]?.paletteBias ?? 0;
+    const dualDepthDelta = dualActive
+      ? computeDualDepthDelta(activeHands[0].projectedScale, activeHands[1].projectedScale)
+      : 0;
+    const dualDepthAmount = Math.abs(dualDepthDelta);
 
     this.callbacks.onInteraction({
       hands: activeHands,
@@ -377,6 +469,8 @@ export class HandTrackerController {
       paletteBias,
       dualDistance,
       dualCloseness,
+      dualDepthDelta,
+      dualDepthAmount,
       lastUpdated: now,
     });
   }

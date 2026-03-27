@@ -19,6 +19,13 @@ export interface HandMeasurement {
   rollAngle: number;
   sideTilt: number;
   paletteBias: number;
+  ellipseAxisX: Vec2;
+  ellipseAxisY: Vec2;
+  ellipseAngle: number;
+  ellipseRadiusX: number;
+  ellipseRadiusY: number;
+  attractionAmount: number;
+  repulsionAmount: number;
   gesture: Exclude<GestureState, "dualField">;
   confidence: number;
 }
@@ -38,6 +45,8 @@ const RING_TIP = 16;
 const PINKY_MCP = 17;
 const PINKY_PIP = 18;
 const PINKY_TIP = 20;
+const ELLIPSE_PADDING_X = 0.034;
+const ELLIPSE_PADDING_Y = 0.046;
 
 export function projectLandmark(landmark: LandmarkLike, mirrorX = true): Vec2 {
   return {
@@ -84,6 +93,50 @@ function length3D(vector: Point3D) {
   return Math.hypot(vector.x, vector.y, vector.z);
 }
 
+function length2D(vector: Vec2) {
+  return Math.hypot(vector.x, vector.y);
+}
+
+function normalize2D(vector: Vec2): Vec2 {
+  const vectorLength = length2D(vector) || 1;
+
+  return {
+    x: vector.x / vectorLength,
+    y: vector.y / vectorLength,
+  };
+}
+
+function dot(a: Vec2, b: Vec2) {
+  return a.x * b.x + a.y * b.y;
+}
+
+function subtract2D(a: Vec2, b: Vec2): Vec2 {
+  return {
+    x: a.x - b.x,
+    y: a.y - b.y,
+  };
+}
+
+function scale2D(vector: Vec2, factor: number): Vec2 {
+  return {
+    x: vector.x * factor,
+    y: vector.y * factor,
+  };
+}
+
+function orthogonal(vector: Vec2): Vec2 {
+  return {
+    x: -vector.y,
+    y: vector.x,
+  };
+}
+
+function smoothstep(edge0: number, edge1: number, value: number) {
+  const t = clamp((value - edge0) / Math.max(edge1 - edge0, 0.0001), 0, 1);
+
+  return t * t * (3 - 2 * t);
+}
+
 function fingerExtension(points: Vec2[], tipIndex: number, baseIndex: number, palm: Vec2, scale: number, softness = 0.82) {
   const tipDistance = distance(points[tipIndex], palm);
   const baseDistance = distance(points[baseIndex], palm);
@@ -109,6 +162,7 @@ export function measureHand(
   const points3D = landmarks.map((landmark) => projectPoint3D(landmark));
   const palm = average([points[WRIST], points[INDEX_MCP], points[MIDDLE_MCP], points[PINKY_MCP]]);
   const fingertips = [points[THUMB_TIP], points[INDEX_TIP], points[MIDDLE_TIP], points[RING_TIP], points[PINKY_TIP]];
+  const forwardTips = [points[INDEX_TIP], points[MIDDLE_TIP], points[RING_TIP], points[PINKY_TIP]];
   const pinchPoint = average([points[THUMB_TIP], points[INDEX_TIP]]);
   const scale = Math.max(0.18, handScale(points));
   const extensions = [
@@ -128,15 +182,57 @@ export function measureHand(
     foldedTowardPalm(points, PINKY_TIP, PINKY_PIP, palm),
   ];
   const foldedCount = fingerFoldStates.filter(Boolean).length;
+  const attractionAmount = smoothstep(0.34, 0.9, closure);
+  const repulsionAmount = smoothstep(0.42, 0.82, openAmount);
   const closedFist = wasClosedFist
-    ? closure >= thresholds.closedFistOffThreshold && foldedCount >= 4
-    : closure >= thresholds.closedFistOnThreshold && foldedCount >= 4;
+    ? closure >= thresholds.closedFistOffThreshold && attractionAmount >= 0.56 && foldedCount >= 4
+    : closure >= thresholds.closedFistOnThreshold && attractionAmount >= 0.76 && foldedCount >= 4;
 
-  const rollVector = {
-    x: points[MIDDLE_TIP].x - points[WRIST].x,
-    y: points[MIDDLE_TIP].y - points[WRIST].y,
-  };
-  const rollAngle = Math.atan2(rollVector.x, -rollVector.y);
+  const knuckleAxis = normalize2D(subtract2D(points[PINKY_MCP], points[INDEX_MCP]));
+  const fingertipsCenter = average(forwardTips);
+  const forwardVector = subtract2D(fingertipsCenter, points[WRIST]);
+  const forwardProjected = subtract2D(forwardVector, scale2D(knuckleAxis, dot(forwardVector, knuckleAxis)));
+  let ellipseAxisY = length2D(forwardProjected) > 0.0001 ? normalize2D(forwardProjected) : normalize2D(orthogonal(knuckleAxis));
+
+  if (dot(ellipseAxisY, subtract2D(fingertipsCenter, palm)) < 0) {
+    ellipseAxisY = scale2D(ellipseAxisY, -1);
+  }
+
+  const ellipseAxisX = normalize2D(orthogonal(ellipseAxisY));
+  const outlinePoints = [
+    points[WRIST],
+    points[INDEX_MCP],
+    points[MIDDLE_MCP],
+    points[RING_MCP],
+    points[PINKY_MCP],
+    points[THUMB_TIP],
+    points[INDEX_TIP],
+    points[MIDDLE_TIP],
+    points[RING_TIP],
+    points[PINKY_TIP],
+  ];
+  const projectedExtents = outlinePoints.map((point) => {
+    const delta = subtract2D(point, palm);
+
+    return {
+      x: Math.abs(dot(delta, ellipseAxisX)),
+      y: Math.abs(dot(delta, ellipseAxisY)),
+    };
+  });
+  const ellipseRadiusX = clamp(
+    Math.max(...projectedExtents.map((entry) => entry.x), distance(points[INDEX_MCP], points[PINKY_MCP]) * 0.54) +
+      scale * ELLIPSE_PADDING_X,
+    0.07,
+    0.32,
+  );
+  const ellipseRadiusY = clamp(
+    Math.max(...projectedExtents.map((entry) => entry.y), distance(points[WRIST], fingertipsCenter) * 0.52) +
+      scale * ELLIPSE_PADDING_Y,
+    0.1,
+    0.38,
+  );
+  const ellipseAngle = Math.atan2(ellipseAxisX.y, ellipseAxisX.x);
+  const rollAngle = Math.atan2(ellipseAxisY.x, -ellipseAxisY.y);
   const paletteBias = clamp(rollAngle / (Math.PI * 0.35), -1, 1);
   const palmNormal = cross(subtract3D(points3D[INDEX_MCP], points3D[WRIST]), subtract3D(points3D[PINKY_MCP], points3D[WRIST]));
   const sideTilt = clamp(Math.abs(palmNormal.z) / Math.max(length3D(palmNormal), 0.0001), 0, 1);
@@ -163,6 +259,13 @@ export function measureHand(
     rollAngle,
     sideTilt,
     paletteBias,
+    ellipseAxisX,
+    ellipseAxisY,
+    ellipseAngle,
+    ellipseRadiusX,
+    ellipseRadiusY,
+    attractionAmount,
+    repulsionAmount,
     gesture,
     confidence,
   };

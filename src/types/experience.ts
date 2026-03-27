@@ -62,6 +62,7 @@ export interface ViewportMapping {
 export interface HandVisualState {
   id: string;
   palm: Vec2;
+  landmarks: Vec2[];
   fingertips: Vec2[];
   pinchPoint: Vec2;
   radius: number;
@@ -72,6 +73,14 @@ export interface HandVisualState {
   rollAngle: number;
   sideTilt: number;
   paletteBias: number;
+  ellipseAngle: number;
+  ellipseRadiusX: number;
+  ellipseRadiusY: number;
+  projectedScale: number;
+  attractionAmount: number;
+  repulsionAmount: number;
+  openImpulseAmount: number;
+  closingImpulseAmount: number;
   speed: number;
   gesture: Exclude<GestureState, "dualField">;
   trail: Vec2[];
@@ -88,6 +97,8 @@ export interface InteractionState {
   paletteBias: number;
   dualDistance: number;
   dualCloseness: number;
+  dualDepthDelta: number;
+  dualDepthAmount: number;
   lastUpdated: number;
 }
 
