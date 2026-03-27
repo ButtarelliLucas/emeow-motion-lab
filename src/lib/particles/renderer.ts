@@ -897,8 +897,10 @@ export class ParticleFieldRenderer {
 
     if (this.releaseSparks) {
       const sparkMaterial = this.releaseSparks.material;
-      sparkMaterial.uniforms.uColor.value.copy(palette.energyColor);
-      sparkMaterial.uniforms.uHalo.value.copy(palette.haloColor.clone().lerp(EVENT_GOLD, 0.22));
+      sparkMaterial.uniforms.uColor.value.copy(palette.accentWarm.clone().lerp(palette.energyColor, 0.48));
+      sparkMaterial.uniforms.uHalo.value.copy(
+        palette.accentCool.clone().lerp(palette.haloColor, 0.54).lerp(EVENT_GOLD, 0.18),
+      );
     }
   }
 
@@ -2351,9 +2353,18 @@ export class ParticleFieldRenderer {
     const haloMaterial = this.compressionHalo.material as THREE.SpriteMaterial;
     const ringMaterial = this.releaseRing.material as THREE.SpriteMaterial;
     const center = this.dualImplosion.center;
-    const mix = clamp((this.dualImplosion.paletteBias + 1) * 0.5, 0, 1);
-    const biasWave = ION_CYAN.clone().lerp(ACCRETION_PINK, mix);
-    const flashColor = EVENT_GOLD.clone().lerp(HOT_HALO, 0.58).lerp(biasWave, 0.12);
+    const palette = this.createBiasPalette(this.dualImplosion.paletteBias, 1);
+    const flashColor = palette.energyColor
+      .clone()
+      .lerp(EVENT_GOLD, 0.36)
+      .lerp(HOT_HALO, 0.34)
+      .lerp(palette.accentWarm, 0.14);
+    const haloColor = palette.secondaryColor.clone().lerp(palette.accentCool, 0.34).lerp(this.paletteHalo, 0.18);
+    const ringColor = palette.accentCool
+      .clone()
+      .lerp(palette.accentWarm, 0.36)
+      .lerp(palette.energyColor, 0.28)
+      .lerp(HOT_HALO, 0.14);
     const radius = Math.max(this.dualImplosion.radius, 0.14);
     const axisAngle = Math.atan2(this.dualImplosion.axis.y, this.dualImplosion.axis.x);
     const dualFxBoost = this.wireframeMode ? 1.2 : 1;
@@ -2367,33 +2378,33 @@ export class ParticleFieldRenderer {
 
     if (this.dualImplosion.phase === "gather") {
       const progress = clamp(this.dualImplosion.elapsed / 0.12, 0, 1);
-      opacity = 0.24 + progress * 0.22;
+      opacity = 0.28 + progress * 0.24;
       scaleValue = radius * (1.9 - progress * 0.45);
-      haloOpacity = (0.24 + progress * 0.2) * dualFxBoost;
+      haloOpacity = (0.28 + progress * 0.22) * dualFxBoost;
       haloScaleX = radius * lerp(2.2, 1.62, progress);
       haloScaleY = radius * lerp(1.28, 0.92, progress);
     } else if (this.dualImplosion.phase === "implode") {
       const progress = clamp(this.dualImplosion.elapsed / 0.16, 0, 1);
-      opacity = 0.36 + progress * 0.28;
+      opacity = 0.42 + progress * 0.3;
       scaleValue = radius * (1.46 - progress * 0.68);
-      haloOpacity = (0.32 + progress * 0.24) * dualFxBoost;
+      haloOpacity = (0.38 + progress * 0.28) * dualFxBoost;
       haloScaleX = radius * lerp(1.56, 0.92, progress);
       haloScaleY = radius * lerp(0.94, 0.54, progress);
     } else if (this.dualImplosion.phase === "release") {
       const progress = clamp(this.dualImplosion.elapsed / 0.2, 0, 1);
-      opacity = 0.62 - progress * 0.22;
+      opacity = 0.74 - progress * 0.24;
       scaleValue = radius * (0.54 + progress * (1.9 + this.dualImplosion.releaseBurstStrength * 0.7));
-      haloOpacity = (0.34 - progress * 0.24) * dualFxBoost;
+      haloOpacity = (0.44 - progress * 0.28) * dualFxBoost;
       haloScaleX = radius * (0.9 + progress * 0.82);
       haloScaleY = radius * (0.62 + progress * 0.46);
-      ringOpacity = (0.68 - progress * 0.4) * dualFxBoost;
+      ringOpacity = (0.84 - progress * 0.46) * dualFxBoost;
       ringScale = radius * (0.54 + progress * (2.4 + this.dualImplosion.releaseBurstStrength * 0.86));
     } else {
       const progress = clamp(this.dualImplosion.elapsed / 0.14, 0, 1);
-      opacity = (1 - progress) * 0.9;
+      opacity = (1 - progress) * 0.98;
       scaleValue = radius * (1.2 + progress * 2.8);
-      haloOpacity = (1 - progress) * 0.22 * dualFxBoost;
-      ringOpacity = (1 - progress) * 0.24 * dualFxBoost;
+      haloOpacity = (1 - progress) * 0.28 * dualFxBoost;
+      ringOpacity = (1 - progress) * 0.3 * dualFxBoost;
       ringScale = radius * (1.18 + progress * 1.2);
     }
 
@@ -2407,14 +2418,16 @@ export class ParticleFieldRenderer {
     this.compressionHalo.position.set(center.x, center.y, 0.01);
     this.compressionHalo.scale.set(haloScaleX, haloScaleY, 1);
     haloMaterial.rotation = axisAngle;
-    haloMaterial.color.copy(biasWave.clone().lerp(this.paletteHalo, this.dualImplosion.phase === "release" ? 0.22 : 0.12));
+    haloMaterial.color.copy(
+      haloColor.clone().lerp(palette.energyColor, this.dualImplosion.phase === "release" ? 0.18 : 0.06),
+    );
     haloMaterial.opacity = haloOpacity;
 
     this.releaseRing.visible = ringOpacity > 0.01;
     this.releaseRing.position.set(center.x, center.y, 0.02);
     this.releaseRing.scale.set(ringScale * 1.12, ringScale, 1);
     ringMaterial.rotation = axisAngle;
-    ringMaterial.color.copy(flashColor);
+    ringMaterial.color.copy(ringColor);
     ringMaterial.opacity = ringOpacity * (this.reducedMotion ? 0.82 : 1);
   }
 
