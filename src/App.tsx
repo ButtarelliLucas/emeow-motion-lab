@@ -55,7 +55,7 @@ export default function App() {
       {showHud || showHint ? (
         <div
           className={`absolute inset-0 z-20 transition-opacity duration-300 ${
-            chromeVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+            chromeVisible ? "pointer-events-none opacity-100" : "pointer-events-none opacity-0"
           }`}
         >
           {showHud ? (
@@ -82,8 +82,26 @@ export default function App() {
 
       {showHud && screenToggleHintVisible ? (
         <div className="pointer-events-none absolute inset-0 z-[22] flex items-center justify-center px-6">
-          <div className="live-mode-toast max-w-lg rounded-[1.75rem] border border-white/18 bg-black/58 px-5 py-3 text-center text-base leading-7 text-white/94 shadow-[0_22px_56px_rgba(0,0,0,0.4)] backdrop-blur-xl sm:px-6 sm:py-3.5">
-            {EXPERIENCE_COPY.wireframeHint}
+          <div className="live-mode-toast flex max-w-lg items-center gap-3 rounded-[1.75rem] border border-white/18 bg-black/58 px-5 py-3 text-left text-base leading-7 text-white/94 shadow-[0_22px_56px_rgba(0,0,0,0.4)] backdrop-blur-xl sm:px-6 sm:py-3.5">
+            <span
+              aria-hidden="true"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/16 bg-white/[0.07] text-white/92 shadow-[0_0_24px_rgba(128,235,255,0.14)]"
+            >
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeOpacity="0.45" strokeWidth="1.2" />
+                <circle cx="12" cy="12" r="4.2" stroke="currentColor" strokeWidth="1.4" />
+                <path
+                  d="M12 9.6v4.8M9.6 12H14.4"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeWidth="1.6"
+                />
+              </svg>
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-white/66">tap / click</p>
+              <p>{EXPERIENCE_COPY.wireframeHint}</p>
+            </div>
           </div>
         </div>
       ) : null}
@@ -95,10 +113,10 @@ export default function App() {
             <button
               className="site-only-link pointer-events-auto text-sm font-medium tracking-[0.18em] text-foreground/86 transition hover:text-foreground hover:underline hover:underline-offset-4 focus:outline-none focus-visible:text-foreground focus-visible:underline focus-visible:underline-offset-4"
               data-live-chrome-control="true"
-              onClick={() => window.open("https://motion.e-meow.com.ar", "_self", "noopener")}
+              onClick={() => window.open("https://e-meow.com.ar", "_self", "noopener")}
               type="button"
             >
-              motion.e-meow.com.ar
+              e-meow.com.ar
             </button>
           </div>
         </div>

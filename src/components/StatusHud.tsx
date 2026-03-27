@@ -115,13 +115,16 @@ export function StatusHud({
             ) : null}
           </div>
 
-          <div className="flex min-h-12 items-end justify-end">
+          <div className="flex min-h-[6.75rem] flex-col items-center justify-end gap-2 sm:min-h-12 sm:flex-row sm:items-end sm:justify-end sm:gap-0">
             <button
-              className="focus-ring pointer-events-auto absolute bottom-0 left-1/2 min-h-12 -translate-x-1/2 rounded-full border border-white/12 bg-white/6 px-5 py-3 text-sm font-medium text-foreground transition hover:bg-white/10"
+              aria-label={helpOpen ? "Ocultar ayuda" : "Mostrar ayuda"}
+              className="focus-ring pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-white/6 text-sm font-medium text-foreground transition hover:bg-white/10 sm:absolute sm:bottom-0 sm:left-1/2 sm:-translate-x-1/2"
               onClick={onToggleHelp}
               type="button"
             >
-              {helpOpen ? "Ocultar ayuda" : "Ayuda"}
+              <span className="flex h-5 w-5 items-center justify-center">
+                <span className="text-lg leading-none">?</span>
+              </span>
             </button>
             <button
               className="pointer-events-auto min-h-12 rounded-full border-0 bg-transparent px-2 py-3 text-sm font-medium tracking-[0.12em] text-foreground/84 shadow-none outline-none transition hover:bg-transparent hover:text-foreground hover:underline hover:underline-offset-4 focus:outline-none focus-visible:bg-transparent focus-visible:text-foreground focus-visible:underline focus-visible:underline-offset-4"
