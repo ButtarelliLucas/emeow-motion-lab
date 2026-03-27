@@ -12,6 +12,8 @@ export type GestureState = "idle" | "closedFist" | "openPalm" | "sweep" | "dualF
 
 export type QualityTier = "low" | "medium" | "high";
 
+export type TrackingBackend = "parallel" | "legacy";
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -108,6 +110,7 @@ export interface OverlayStatus {
   handsCount: number;
   primaryGesture: GestureState;
   qualityTier: QualityTier;
+  trackingBackend: TrackingBackend | null;
   metrics: ExperienceMetrics;
   errorMessage: string | null;
 }

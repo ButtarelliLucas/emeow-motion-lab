@@ -10,10 +10,17 @@ import {
   isMeaningfulPointerMove,
 } from "@/lib/live-chrome";
 import { detectInitialQualityTier } from "@/lib/quality";
+import type { HandTrackerController } from "@/lib/hand-tracking/tracker-facade";
 import { ParticleFieldRenderer } from "@/lib/particles/renderer";
 import { createViewportMapping } from "@/lib/viewport-mapping";
-import type { HandTrackerController } from "@/lib/hand-tracking/tracker";
-import type { ExperiencePhase, GestureState, OverlayStatus, QualityTier, ViewportMapping } from "@/types/experience";
+import type {
+  ExperiencePhase,
+  GestureState,
+  OverlayStatus,
+  QualityTier,
+  TrackingBackend,
+  ViewportMapping,
+} from "@/types/experience";
 
 const LIVE_PHASES: ExperiencePhase[] = ["calibrating", "live", "handMissing"];
 
@@ -160,6 +167,7 @@ export function useExperienceController() {
     handsCount: 0,
     primaryGesture: "idle",
     qualityTier,
+    trackingBackend: null,
     metrics: DEFAULT_METRICS,
     errorMessage: null,
   });
@@ -265,6 +273,17 @@ export function useExperienceController() {
       handsDetected,
       primaryGesture,
     }));
+  };
+
+  const setTrackingBackend = (trackingBackend: TrackingBackend) => {
+    setOverlayStatus((current) =>
+      current.trackingBackend === trackingBackend
+        ? current
+        : {
+            ...current,
+            trackingBackend,
+          },
+    );
   };
 
   useEffect(() => {
@@ -548,6 +567,7 @@ export function useExperienceController() {
       handsCount: 0,
       handsDetected: false,
       primaryGesture: "idle",
+      trackingBackend: null,
     }));
 
     try {
@@ -580,7 +600,7 @@ export function useExperienceController() {
       setPhase("calibrating");
 
       const { HandTrackerController } = await withTimeout(
-        import("@/lib/hand-tracking/tracker"),
+        import("@/lib/hand-tracking/tracker-facade"),
         10000,
         "No pudimos cargar el motor interactivo.",
       );
@@ -594,6 +614,9 @@ export function useExperienceController() {
           },
           onTrackingMetrics: (trackingMs) => {
             setMetrics(undefined, trackingMs);
+          },
+          onTrackingBackend: (trackingBackend) => {
+            setTrackingBackend(trackingBackend);
           },
         },
       });

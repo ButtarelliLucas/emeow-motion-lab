@@ -38,6 +38,18 @@ function gestureHint(gesture: GestureState) {
   }
 }
 
+function trackingBackendLabel(overlayStatus: OverlayStatus) {
+  if (overlayStatus.trackingBackend === "parallel") {
+    return "Procesamiento paralelo";
+  }
+
+  if (overlayStatus.trackingBackend === "legacy") {
+    return "Fallback legacy";
+  }
+
+  return null;
+}
+
 export function StatusHud({
   overlayStatus,
   helpOpen,
@@ -47,6 +59,7 @@ export function StatusHud({
   onGoHome,
 }: StatusHudProps) {
   const currentPhaseLabel = phaseLabel(overlayStatus);
+  const trackingBackend = trackingBackendLabel(overlayStatus);
 
   return (
     <>
@@ -64,10 +77,20 @@ export function StatusHud({
             </div>
           </div>
 
-          {currentPhaseLabel ? (
-            <span className="w-fit rounded-full border border-white/12 bg-white/6 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground-muted">
-              {currentPhaseLabel}
-            </span>
+          {currentPhaseLabel || trackingBackend ? (
+            <div className="flex flex-col items-start gap-2 sm:items-end">
+              {currentPhaseLabel ? (
+                <span className="w-fit rounded-full border border-white/12 bg-white/6 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground-muted">
+                  {currentPhaseLabel}
+                </span>
+              ) : null}
+
+              {trackingBackend ? (
+                <span className="w-fit rounded-full border border-cyan-200/12 bg-cyan-200/6 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.22em] text-foreground-muted/90">
+                  {trackingBackend}
+                </span>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>
