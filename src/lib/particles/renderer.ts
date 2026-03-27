@@ -657,7 +657,7 @@ export class ParticleFieldRenderer {
       const deltaX = x - previousX;
       const deltaY = y - previousY;
       const deltaLength = Math.hypot(deltaX, deltaY);
-      const trailStrength = clamp(deltaLength / 0.014, 0, 1);
+      const trailStrength = clamp(deltaLength / 0.009, 0, 1);
       const trailDirection =
         deltaLength > 0.0001
           ? {
@@ -1379,10 +1379,14 @@ export class ParticleFieldRenderer {
       const pulse = 1 + Math.sin(time * 1.8 + handIndex * 0.7) * 0.024;
       const ripple = hand.openImpulseAmount * 0.22;
       const contraction = hand.attractionAmount * 0.06;
-      const ambientOuterSpin = time * (0.18 + handIndex * 0.02) * motionDamp;
-      const ambientDetailSpin = time * (0.28 + handIndex * 0.03) * motionDamp;
+      const overlayOrbitBoost = this.reducedMotion ? 0.82 : 1.62;
+      const ambientOuterSpin = time * (0.3 + handIndex * 0.04) * motionDamp * overlayOrbitBoost;
+      const ambientDetailSpin = time * (0.48 + handIndex * 0.05) * motionDamp * overlayOrbitBoost;
       const orbitalSpin =
-        time * (0.46 + hand.openImpulseAmount * 0.8 + hand.openAmount * 0.12 + hand.attractionAmount * 0.08) * motionDamp;
+        time *
+        (0.72 + hand.openImpulseAmount * 1.04 + hand.openAmount * 0.18 + hand.attractionAmount * 0.12) *
+        motionDamp *
+        overlayOrbitBoost;
       const contourFlow = 0.5 + Math.sin(time * (2.1 + handIndex * 0.18) + hand.palm.x * 2.8 + hand.palm.y) * 0.5;
       const glowBreath = 0.5 + Math.sin(time * 1.4 + handIndex * 0.8) * 0.5;
       const orbitalMaterial = orbital.material as THREE.SpriteMaterial;
@@ -1441,10 +1445,12 @@ export class ParticleFieldRenderer {
         color: outerColor,
         haloColor: overlayPalette.accentCool,
         opacity: outerOpacity,
-        jitterAmplitude: Math.min(ringWidth, ringHeight) * (0.006 + hand.openImpulseAmount * 0.002),
-        driftSpeed: 0.62 + hand.openImpulseAmount * 0.16 + hand.attractionAmount * 0.08,
+        jitterAmplitude: Math.min(ringWidth, ringHeight) * (0.004 + hand.openImpulseAmount * 0.0015),
+        driftSpeed:
+          (0.98 + hand.openImpulseAmount * 0.34 + hand.attractionAmount * 0.12 + hand.openAmount * 0.08) *
+          overlayOrbitBoost,
         time,
-        flowAmount: 0.014 + contourFlow * 0.008,
+        flowAmount: 0.018 + contourFlow * 0.012,
         zOffset: 0.001,
       });
       this.updateRingParticleSystem(detailSystem, {
@@ -1455,10 +1461,10 @@ export class ParticleFieldRenderer {
         color: detailColor,
         haloColor: outerColor,
         opacity: detailOpacity,
-        jitterAmplitude: Math.min(detailWidth, detailHeight) * 0.003,
-        driftSpeed: -0.46 - contourFlow * 0.08,
+        jitterAmplitude: Math.min(detailWidth, detailHeight) * 0.002,
+        driftSpeed: (-0.82 - contourFlow * 0.16 - hand.openImpulseAmount * 0.08) * overlayOrbitBoost,
         time,
-        flowAmount: 0.008 + glowBreath * 0.006,
+        flowAmount: 0.012 + glowBreath * 0.008,
         zOffset: 0.002,
       });
       orbitalMaterial.rotation = hand.ellipseAngle + orbitalSpin;
