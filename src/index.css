@@ -125,6 +125,17 @@ video {
     0 0 0 5px rgba(4, 25, 35, 0.8);
 }
 
+.site-only-link {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none;
+  padding: 0;
+}
+
 .ambient-grid {
   background-image:
     linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
@@ -195,18 +206,51 @@ video {
 @keyframes live-mode-toast {
   0% {
     opacity: 0;
-    transform: translateY(10px) scale(0.96);
+    transform: translateY(12px) scale(0.95);
   }
 
   12%,
-  78% {
+  84% {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
 
   100% {
     opacity: 0;
-    transform: translateY(8px) scale(0.985);
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+@keyframes intro-activate-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes intro-activate-breathe {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      0 18px 40px rgba(12, 20, 35, 0.34),
+      0 8px 24px rgba(110, 56, 180, 0.22);
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.24),
+      0 22px 46px rgba(12, 20, 35, 0.38),
+      0 10px 28px rgba(122, 64, 196, 0.28);
+    transform: translateY(-1px) scale(1.015);
   }
 }
 
@@ -217,7 +261,31 @@ video {
 }
 
 .live-mode-toast {
-  animation: live-mode-toast 4.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: live-mode-toast 5.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.intro-activate-button {
+  font-family: inherit;
+  background:
+    linear-gradient(135deg, rgba(10, 88, 126, 0.98), rgba(74, 52, 182, 0.96) 52%, rgba(172, 44, 122, 0.96));
+  background-size: 180% 180%;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 18px 40px rgba(12, 20, 35, 0.34),
+    0 8px 24px rgba(110, 56, 180, 0.22);
+  animation:
+    intro-activate-gradient 6s ease-in-out infinite,
+    intro-activate-breathe 2.8s ease-in-out infinite;
+}
+
+.intro-activate-button:hover:not(:disabled),
+.intro-activate-button:focus-visible:not(:disabled) {
+  background:
+    linear-gradient(135deg, rgba(12, 101, 142, 1), rgba(88, 61, 201, 0.98) 52%, rgba(188, 50, 134, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 22px 46px rgba(12, 20, 35, 0.38),
+    0 10px 28px rgba(122, 64, 196, 0.28);
 }
 
 @media (prefers-reduced-motion: reduce) {

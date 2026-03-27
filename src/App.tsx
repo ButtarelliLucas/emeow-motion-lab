@@ -63,7 +63,7 @@ export default function App() {
               helpItems={EXPERIENCE_COPY.help}
               helpOpen={helpOpen}
               overlayStatus={overlayStatus}
-              onGoHome={() => window.open("https://e-meow.com.ar", "_self", "noopener")}
+              onGoHome={() => window.open("https://motion.e-meow.com.ar", "_self", "noopener")}
               onToggleHelp={() => setHelpOpen((current) => !current)}
             />
           ) : null}
@@ -82,7 +82,7 @@ export default function App() {
 
       {showHud && screenToggleHintVisible ? (
         <div className="pointer-events-none absolute inset-0 z-[22] flex items-center justify-center px-6">
-          <div className="live-mode-toast max-w-md rounded-full border border-white/12 bg-black/42 px-4 py-2.5 text-center text-sm leading-6 text-white/86 shadow-[0_18px_45px_rgba(0,0,0,0.32)] backdrop-blur-xl sm:px-5">
+          <div className="live-mode-toast max-w-lg rounded-[1.75rem] border border-white/18 bg-black/58 px-5 py-3 text-center text-base leading-7 text-white/94 shadow-[0_22px_56px_rgba(0,0,0,0.4)] backdrop-blur-xl sm:px-6 sm:py-3.5">
             {EXPERIENCE_COPY.wireframeHint}
           </div>
         </div>
@@ -90,14 +90,17 @@ export default function App() {
 
       {siteOnlyMode ? (
         <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom,0px)+18px)]">
-          <button
-            className="pointer-events-auto appearance-none border-0 bg-transparent px-0 py-0 text-sm font-medium tracking-[0.18em] text-foreground/86 shadow-none outline-none transition hover:bg-transparent hover:text-foreground hover:underline hover:underline-offset-4 focus:outline-none focus-visible:bg-transparent focus-visible:text-foreground focus-visible:underline focus-visible:underline-offset-4"
-            data-live-chrome-control="true"
-            onClick={() => window.open("https://e-meow.com.ar", "_self", "noopener")}
-            type="button"
-          >
-            e-meow.com.ar
-          </button>
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-[10px] font-medium uppercase tracking-[0.26em] text-foreground/66">powered by</span>
+            <button
+              className="site-only-link pointer-events-auto text-sm font-medium tracking-[0.18em] text-foreground/86 transition hover:text-foreground hover:underline hover:underline-offset-4 focus:outline-none focus-visible:text-foreground focus-visible:underline focus-visible:underline-offset-4"
+              data-live-chrome-control="true"
+              onClick={() => window.open("https://motion.e-meow.com.ar", "_self", "noopener")}
+              type="button"
+            >
+              motion.e-meow.com.ar
+            </button>
+          </div>
         </div>
       ) : null}
 

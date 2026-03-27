@@ -37,7 +37,7 @@ export function IntroGate({ phase, onStart }: IntroGateProps) {
         </div>
 
         <div className="space-y-5">
-          <p className="max-w-lg text-balance text-sm leading-6 text-foreground-muted sm:text-base">
+          <p className="text-pretty text-sm leading-6 text-foreground-muted sm:max-w-lg sm:text-base">
             {EXPERIENCE_COPY.headline}
           </p>
 
@@ -46,14 +46,14 @@ export function IntroGate({ phase, onStart }: IntroGateProps) {
           </div>
 
           <button
-            className="focus-ring inline-flex min-h-12 w-full items-center justify-center rounded-full border border-white/15 bg-[linear-gradient(135deg,rgba(128,235,255,0.88),rgba(248,62,165,0.88))] px-6 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-105 disabled:cursor-progress disabled:opacity-72 sm:w-auto"
+            className="focus-ring intro-activate-button inline-flex min-h-12 w-full items-center justify-center rounded-full border border-white/14 px-7 py-3 text-sm font-medium tracking-[0.12em] text-white transition hover:brightness-105 disabled:cursor-progress disabled:opacity-72"
             disabled={busy}
             onClick={() => {
               void onStart();
             }}
             type="button"
           >
-            {busy ? "Iniciando..." : "Activar camara"}
+            {busy ? "Iniciando..." : "Activar Cámara"}
           </button>
 
           {status ? (

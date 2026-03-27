@@ -124,12 +124,12 @@ export function StatusHud({
               {helpOpen ? "Ocultar ayuda" : "Ayuda"}
             </button>
             <button
-              className="focus-ring pointer-events-auto min-h-12 rounded-full border-0 bg-transparent px-2 py-3 text-sm font-medium tracking-[0.12em] text-foreground/84 shadow-none transition hover:bg-transparent hover:text-foreground hover:underline hover:underline-offset-4"
+              className="pointer-events-auto min-h-12 rounded-full border-0 bg-transparent px-2 py-3 text-sm font-medium tracking-[0.12em] text-foreground/84 shadow-none outline-none transition hover:bg-transparent hover:text-foreground hover:underline hover:underline-offset-4 focus:outline-none focus-visible:bg-transparent focus-visible:text-foreground focus-visible:underline focus-visible:underline-offset-4"
               data-live-chrome-control="true"
               onClick={onGoHome}
               type="button"
             >
-              e-meow.com.ar
+              motion.e-meow.com.ar
             </button>
           </div>
         </div>
