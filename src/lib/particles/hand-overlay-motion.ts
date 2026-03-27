@@ -27,6 +27,7 @@ export interface OverlayDisplayHandState {
 export interface RingMotionBuffers {
   positions: Float32Array;
   previousPositions: Float32Array;
+  initialized: Uint8Array;
   sizes: Float32Array;
   alphas: Float32Array;
   trails: Float32Array;
@@ -52,6 +53,7 @@ export interface RingMotionOptions {
   bandThickness: number;
   tangentSpread: number;
   axisWarp: number;
+  followAlpha?: number;
 }
 
 function lerpPoint(start: Vec2, end: Vec2, alpha: number): Vec2 {
@@ -151,6 +153,7 @@ export function createRingMotionBuffers({
 }): RingMotionBuffers {
   const positions = new Float32Array(count * 3);
   const previousPositions = new Float32Array(count * 2);
+  const initialized = new Uint8Array(count);
   const sizes = new Float32Array(count);
   const alphas = new Float32Array(count);
   const trails = new Float32Array(count * 2);
@@ -181,6 +184,7 @@ export function createRingMotionBuffers({
   return {
     positions,
     previousPositions,
+    initialized,
     sizes,
     alphas,
     trails,
@@ -198,6 +202,7 @@ export function stepRingMotion(buffers: RingMotionBuffers, options: RingMotionOp
   const cosRotation = Math.cos(options.rotation);
   const sinRotation = Math.sin(options.rotation);
   const orbitalPhase = options.time * options.driftSpeed;
+  const followAlpha = clamp(options.followAlpha ?? 0.32, 0.02, 1);
 
   for (let index = 0; index < buffers.angles.length; index += 1) {
     const lanePhase = buffers.phaseOffsets[index] * Math.PI * 2;
@@ -236,10 +241,14 @@ export function stepRingMotion(buffers: RingMotionBuffers, options: RingMotionOp
     });
     localX += normal.x * bandOffset + tangent.x * tangentOffset;
     localY += normal.y * bandOffset + tangent.y * tangentOffset;
-    const x = options.center.x + localX * cosRotation - localY * sinRotation;
-    const y = options.center.y + localX * sinRotation + localY * cosRotation;
+    const targetX = options.center.x + localX * cosRotation - localY * sinRotation;
+    const targetY = options.center.y + localX * sinRotation + localY * cosRotation;
     const positionIndex = index * 3;
     const previousIndex = index * 2;
+    const currentX = buffers.initialized[index] ? buffers.positions[positionIndex] : targetX;
+    const currentY = buffers.initialized[index] ? buffers.positions[positionIndex + 1] : targetY;
+    const x = buffers.initialized[index] ? lerp(currentX, targetX, followAlpha) : targetX;
+    const y = buffers.initialized[index] ? lerp(currentY, targetY, followAlpha) : targetY;
     const previousX = buffers.previousPositions[previousIndex];
     const previousY = buffers.previousPositions[previousIndex + 1];
     const deltaX = x - previousX;
@@ -261,6 +270,7 @@ export function stepRingMotion(buffers: RingMotionBuffers, options: RingMotionOp
     buffers.trails[previousIndex + 1] = trailDirection.y * trailStrength;
     buffers.previousPositions[previousIndex] = x;
     buffers.previousPositions[previousIndex + 1] = y;
+    buffers.initialized[index] = 1;
   }
 
   return buffers;

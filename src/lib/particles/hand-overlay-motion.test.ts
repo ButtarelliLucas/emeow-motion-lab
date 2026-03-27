@@ -30,6 +30,17 @@ function averageStep(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function averageParticleDisplacement(current: Float32Array, previous: Float32Array) {
+  let total = 0;
+  const count = current.length / 3;
+
+  for (let index = 0; index < current.length; index += 3) {
+    total += Math.hypot(current[index] - previous[index], current[index + 1] - previous[index + 1]);
+  }
+
+  return count > 0 ? total / count : 0;
+}
+
 function circularAngle(position: Vec2, center: Vec2, rotation: number, radiusX: number, radiusY: number) {
   const translatedX = position.x - center.x;
   const translatedY = position.y - center.y;
@@ -306,5 +317,53 @@ describe("hand overlay orbital continuity", () => {
 
       expect(isRotationOf(order, referenceOrder)).toBe(true);
     }
+  });
+
+  it("does not snap the whole orbital band directly to a new center in one frame", () => {
+    const ring = createRingMotionBuffers({
+      count: 48,
+      shellCount: 4,
+      sizeRange: [7.4, 11.4],
+      alphaRange: [0.78, 1],
+      overlayScale: 1,
+      random: createSeededRandom(11),
+    });
+
+    stepRingMotion(ring, {
+      center: { x: -0.2, y: 0.04 },
+      rotation: 0.1,
+      radiusX: 0.22,
+      radiusY: 0.28,
+      jitterAmplitude: 0.001,
+      driftSpeed: 1.58,
+      time: 0,
+      flowAmount: 0.024,
+      zOffset: 0.001,
+      bandThickness: 0.018,
+      tangentSpread: 0.008,
+      axisWarp: 0.18,
+    });
+
+    const beforeJump = ring.positions.slice();
+    const centerJump = distance({ x: -0.2, y: 0.04 }, { x: 0.26, y: -0.06 });
+
+    stepRingMotion(ring, {
+      center: { x: 0.26, y: -0.06 },
+      rotation: 0.42,
+      radiusX: 0.24,
+      radiusY: 0.26,
+      jitterAmplitude: 0.001,
+      driftSpeed: 1.58,
+      time: 1 / 60,
+      flowAmount: 0.024,
+      zOffset: 0.001,
+      bandThickness: 0.018,
+      tangentSpread: 0.008,
+      axisWarp: 0.18,
+    });
+
+    const averageJump = averageParticleDisplacement(ring.positions, beforeJump);
+
+    expect(averageJump).toBeLessThan(centerJump * 0.72);
   });
 });

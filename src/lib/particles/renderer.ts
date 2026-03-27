@@ -734,6 +734,7 @@ export class ParticleFieldRenderer {
       bandThickness: number;
       tangentSpread: number;
       axisWarp: number;
+      followAlpha: number;
       highlightPhase: number;
       highlightWidth: number;
       highlightStrength: number;
@@ -1909,6 +1910,8 @@ export class ParticleFieldRenderer {
         (0.82 + contourFlow * 0.14) *
         overlayModeBoost;
       const highlightPhase = (time * (0.22 + hand.openImpulseAmount * 0.08 + hand.speed * 0.03) + handIndex * 0.18) % 1;
+      const ringFollowAlpha = clamp(1 - Math.exp(-delta * (hand.speed > 1.1 ? 14 : 11)), 0.14, 0.26);
+      const detailFollowAlpha = clamp(1 - Math.exp(-delta * (hand.speed > 1.1 ? 17 : 13)), 0.16, 0.3);
 
       orbital.visible = true;
       core.visible = true;
@@ -1934,6 +1937,7 @@ export class ParticleFieldRenderer {
         bandThickness: Math.min(ringWidth, ringHeight) * (this.reducedMotion ? 0.028 : 0.046),
         tangentSpread: Math.min(ringWidth, ringHeight) * (this.reducedMotion ? 0.014 : 0.024),
         axisWarp: this.reducedMotion ? 0.16 : 0.28,
+        followAlpha: ringFollowAlpha,
         highlightPhase,
         highlightWidth: this.reducedMotion ? 0.16 : 0.12,
         highlightStrength: this.reducedMotion ? 0.24 : 0.34,
@@ -1955,6 +1959,7 @@ export class ParticleFieldRenderer {
         bandThickness: Math.min(detailWidth, detailHeight) * (this.reducedMotion ? 0.016 : 0.028),
         tangentSpread: Math.min(detailWidth, detailHeight) * (this.reducedMotion ? 0.008 : 0.016),
         axisWarp: this.reducedMotion ? 0.08 : 0.16,
+        followAlpha: detailFollowAlpha,
         highlightPhase: (highlightPhase + 0.42) % 1,
         highlightWidth: this.reducedMotion ? 0.24 : 0.2,
         highlightStrength: 0.14,
